@@ -130,4 +130,8 @@ def history(userId: str):
         order_by="start_time desc",
     )
 
+<<<<<<< HEAD
     return {"success": True, "calls": calls}
+=======
+    return {"success": True, "calls": calls}
+>>>>>>> 69f6bd8 (Refactor: Move all config values to Nastavenia doctype + update API)

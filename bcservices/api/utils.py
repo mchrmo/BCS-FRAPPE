@@ -6,23 +6,41 @@ import jwt
 import requests
 from jwt import PyJWKClient
 from frappe.utils import now_datetime, cint, flt
+import httpx
+from pathlib import Path
 
 # ---------------------------------------------------
+<<<<<<< HEAD
+=======
+# Settings loader
+# ---------------------------------------------------
+
+def get_settings():
+    try:
+        return frappe.get_single("Nastavenia")
+    except Exception:
+        frappe.throw("Doctype 'Nastavenia' neexistuje", frappe.ConfigurationError)
+
+
+# ---------------------------------------------------
+>>>>>>> 69f6bd8 (Refactor: Move all config values to Nastavenia doctype + update API)
 # Clerk helpers
 # ---------------------------------------------------
 
 def _clerk_issuer():
-    url = frappe.conf.get("clerk_issuer")
-    if not url:
+    settings = get_settings()
+    if not settings.clerk_issuer:
         frappe.throw("Clerk issuer is not configured", frappe.ConfigurationError)
-    return url.rstrip("/")
+    return settings.clerk_issuer.rstrip("/")
+
 
 
 def _clerk_secret():
-    key = frappe.conf.get("clerk_secret_key")
-    if not key:
+    settings = get_settings()
+    if not settings.clerk_secret_key:
         frappe.throw("Clerk secret key is not configured", frappe.ConfigurationError)
-    return key
+    return settings.clerk_secret_key
+
 
 
 def _jwks_client():
@@ -31,9 +49,13 @@ def _jwks_client():
     """
     cache_key = "bc_jwks_url"
     url = frappe.cache().get_value(cache_key)
+
     if not url:
-        url = f"{_clerk_issuer()}/.well-known/jwks.json"
+        # ak JWKS URL nie je explicitne z Doctype, použijeme issuer/.well-known/jwks.json
+        settings = get_settings()
+        url = settings.clerk_jwks_url or f"{_clerk_issuer()}/.well-known/jwks.json"
         frappe.cache().set_value(cache_key, url, expires_in_sec=3600)
+
     return PyJWKClient(url)
 
 
@@ -79,8 +101,12 @@ def clerk_api(path, method="GET", json_body=None):
     """
     volanie na Clerk Management API (server → server)
     """
+<<<<<<< HEAD
 
+=======
+>>>>>>> 69f6bd8 (Refactor: Move all config values to Nastavenia doctype + update API)
     url = f"https://api.clerk.com{path}"
+
     headers = {
         "Authorization": f"Bearer {_clerk_secret()}",
         "Content-Type": "application/json"
@@ -101,6 +127,10 @@ def clerk_api(path, method="GET", json_body=None):
 
     return resp.json()
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> 69f6bd8 (Refactor: Move all config values to Nastavenia doctype + update API)
 # ---------------------------------------------------
 # User helpers
 # ---------------------------------------------------
@@ -145,6 +175,7 @@ def ensure_bc_user_by_clerk(clerk_id: str, email: str | None = None):
 
     return doc
 
+<<<<<<< HEAD
 
 def ensure_settings():
     """
@@ -166,6 +197,12 @@ def ensure_settings():
 
 import httpx
 from pathlib import Path
+=======
+
+# ---------------------------------------------------
+# APNs / VOIP PUSH
+# ---------------------------------------------------
+>>>>>>> 69f6bd8 (Refactor: Move all config values to Nastavenia doctype + update API)
 
 _apns_cached_token = {"token": None, "iat": 0}
 
@@ -177,6 +214,7 @@ def _build_apns_jwt():
     if _apns_cached_token["token"] and now - _apns_cached_token["iat"] < 50 * 60:
         return _apns_cached_token["token"]
 
+<<<<<<< HEAD
     key_file = frappe.conf.get("apn_key_file")
     key_id = frappe.conf.get("apn_key_id")
     team_id = frappe.conf.get("apn_team_id")
@@ -184,6 +222,17 @@ def _build_apns_jwt():
     if not (key_file and key_id and team_id):
         frappe.throw("APNs config missing", frappe.ConfigurationError)
 
+=======
+    settings = get_settings()
+
+    key_file = settings.apn_key_file
+    key_id = settings.apn_key_id
+    team_id = settings.apn_team_id
+
+    if not (key_file and key_id and team_id):
+        frappe.throw("APNs config missing (check Nastavenia doctype)", frappe.ConfigurationError)
+
+>>>>>>> 69f6bd8 (Refactor: Move all config values to Nastavenia doctype + update API)
     try:
         with open(key_file, "rb") as f:
             p8 = f.read()
@@ -208,8 +257,16 @@ def send_voip_push(device_token: str, payload: dict):
     """
     Priamy HTTP/2 APNs VoIP push.
     """
+<<<<<<< HEAD
     bundle_id = frappe.conf.get("apn_bundle_id")
     prod = cint(frappe.conf.get("apn_production") or 0) == 1
+=======
+
+    settings = get_settings()
+
+    bundle_id = settings.apn_bundle_id
+    prod = cint(settings.apn_production or 0) == 1
+>>>>>>> 69f6bd8 (Refactor: Move all config values to Nastavenia doctype + update API)
 
     host = "https://api.push.apple.com" if prod else "https://api.sandbox.push.apple.com"
     url = f"{host}/3/device/{device_token}"
@@ -237,6 +294,10 @@ def send_voip_push(device_token: str, payload: dict):
 
     return {"apns_id": resp.headers.get("apns-id")}
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> 69f6bd8 (Refactor: Move all config values to Nastavenia doctype + update API)
 # ---------------------------------------------------
 # Device helper – BC Zariadenie (child table)
 # ---------------------------------------------------
@@ -244,7 +305,11 @@ def send_voip_push(device_token: str, payload: dict):
 def upsert_child_device_for_user(user_doc, voip_token: str = None, apns_token: str = None):
     """
     Bezpečný insert/update child zariadení.
+<<<<<<< HEAD
     - odstráni duplicity z ostatných userov
+=======
+    - odstráni duplicity z iných userov
+>>>>>>> 69f6bd8 (Refactor: Move all config values to Nastavenia doctype + update API)
     - update ak existuje
     - append ak neexistuje
     """

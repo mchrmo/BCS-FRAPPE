@@ -39,4 +39,8 @@ def register_device():
         voip_token=voip_token
     )
 
+<<<<<<< HEAD
     return {"success": True, "voip_token": voip_token}
+=======
+    return {"success": True, "voip_token": voip_token}
+>>>>>>> 69f6bd8 (Refactor: Move all config values to Nastavenia doctype + update API)

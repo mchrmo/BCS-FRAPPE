@@ -13,6 +13,7 @@ from .utils import (
     ensure_bc_user_by_clerk,
     _jwks_client,
     _clerk_issuer,
+    get_settings,   # ⬅️ pridáme toto
 )
 
 # -----------------------------------------------------------------------------
@@ -94,7 +95,14 @@ def sso(token: str | None = None):
     )
     sign_in_token = res.get("token")
 
+<<<<<<< HEAD
     app_url = (frappe.conf.get("app_url") or "").rstrip("/")
+=======
+    # ❗ App URL z Doctype Nastavenia
+    settings = get_settings()
+    app_url = (settings.app_url or "").rstrip("/")
+
+>>>>>>> 69f6bd8 (Refactor: Move all config values to Nastavenia doctype + update API)
     redirect_to = f"{app_url}/sso/callback?token={sign_in_token}"
 
     frappe.local.response["type"] = "redirect"
@@ -157,7 +165,11 @@ def _patch_clerk_user(clerk_id: str, email: str | None, password: str | None, ne
     try:
         clerk_api(f"/v1/users/{clerk_id}", method="PATCH", json_body=patch)
     except Exception as e:
+<<<<<<< HEAD
         # Ignore only username errors
+=======
+        # Ignore ONLY username conflict errors
+>>>>>>> 69f6bd8 (Refactor: Move all config values to Nastavenia doctype + update API)
         if new_username and "username" in str(e):
             frappe.log_error(f"Clerk username update failed: {e}", "BC Clerk Sync")
         else:

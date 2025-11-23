@@ -1,0 +1,116 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-11-23 14:35:28.795076",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "clerk_issuer",
+  "clerk_secret_key",
+  "clerk_jwks_url",
+  "apn_team_id",
+  "apn_key_id",
+  "apn_key_file",
+  "apn_production",
+  "stripe_secret_key",
+  "stripe_webhook_secret",
+  "friday_base_price_eur",
+  "friday_base_year",
+  "max_primary_tokens_per_user",
+  "app_url"
+ ],
+ "fields": [
+  {
+   "fieldname": "clerk_issuer",
+   "fieldtype": "Data",
+   "label": "clerk_issuer"
+  },
+  {
+   "fieldname": "clerk_secret_key",
+   "fieldtype": "Data",
+   "label": "clerk_secret_key"
+  },
+  {
+   "fieldname": "clerk_jwks_url",
+   "fieldtype": "Data",
+   "label": "clerk_jwks_url"
+  },
+  {
+   "fieldname": "apn_team_id",
+   "fieldtype": "Data",
+   "label": "apn_team_id"
+  },
+  {
+   "fieldname": "apn_key_id",
+   "fieldtype": "Data",
+   "label": "apn_key_id"
+  },
+  {
+   "fieldname": "apn_key_file",
+   "fieldtype": "Attach",
+   "label": "apn_key_file"
+  },
+  {
+   "default": "0",
+   "fieldname": "apn_production",
+   "fieldtype": "Check",
+   "label": "apn_production"
+  },
+  {
+   "fieldname": "stripe_secret_key",
+   "fieldtype": "Data",
+   "label": "stripe_secret_key"
+  },
+  {
+   "fieldname": "stripe_webhook_secret",
+   "fieldtype": "Data",
+   "label": "stripe_webhook_secret"
+  },
+  {
+   "fieldname": "friday_base_price_eur",
+   "fieldtype": "Float",
+   "label": "friday_base_price_eur"
+  },
+  {
+   "fieldname": "friday_base_year",
+   "fieldtype": "Int",
+   "label": "friday_base_year"
+  },
+  {
+   "fieldname": "max_primary_tokens_per_user",
+   "fieldtype": "Int",
+   "label": "max_primary_tokens_per_user"
+  },
+  {
+   "fieldname": "app_url",
+   "fieldtype": "Data",
+   "label": "app_url"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2025-11-23 14:38:20.577706",
+ "modified_by": "Administrator",
+ "module": "BCServices",
+ "name": "Nastavenie",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

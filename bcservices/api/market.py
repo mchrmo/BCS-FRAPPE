@@ -5,7 +5,11 @@ from frappe.utils import now_datetime
 from .utils import (
     verify_clerk_bearer_and_get_sub,
     ensure_bc_user_by_clerk,
+<<<<<<< HEAD
     ensure_settings
+=======
+    get_settings,
+>>>>>>> 69f6bd8 (Refactor: Move all config values to Nastavenia doctype + update API)
 )
 
 # -----------------------------------------------------------------------------
@@ -31,25 +35,48 @@ def purchase(userId: str = None, quantity: int = None, year: int = None):
     # BC user = Clerk ID
     user = ensure_bc_user_by_clerk(userId)
 
+<<<<<<< HEAD
     # Pricing
     settings = ensure_settings()
     unit_price = float(settings.aktualna_cena_eur or 0)
+=======
+    # Load settings from new Nastavenia Doctype
+    settings = get_settings()
+
+    # Pricing
+    unit_price = float(settings.friday_base_price_eur or 0)
+>>>>>>> 69f6bd8 (Refactor: Move all config values to Nastavenia doctype + update API)
     if unit_price <= 0:
         frappe.throw("Treasury price not set", frappe.ValidationError)
 
     # Enforce yearly quota
+<<<<<<< HEAD
     max_per_year = int(frappe.conf.get("max_primary_tokens_per_user") or 20)
+=======
+    max_per_year = int(settings.max_primary_tokens_per_user or 20)
+
+>>>>>>> 69f6bd8 (Refactor: Move all config values to Nastavenia doctype + update API)
     owned = frappe.db.count("BC Token", {
         "aktualny_drzitel": user.name,
         "vydany_rok": year,
         "stav": ["in", ["active", "listed"]]
     })
+<<<<<<< HEAD
     if owned + quantity > max_per_year:
         frappe.throw(
             f"Primary limit is {max_per_year} tokens per user for year {year}",
             frappe.ValidationError
         )
 
+=======
+
+    if owned + quantity > max_per_year:
+        frappe.throw(
+            f"Primary limit is {max_per_year} tokens per user for year {year}",
+            frappe.ValidationError
+        )
+
+>>>>>>> 69f6bd8 (Refactor: Move all config values to Nastavenia doctype + update API)
     # Get available treasury tokens
     available = frappe.get_all(
         "BC Token",
@@ -172,7 +199,10 @@ def list_token(sellerId: str = None, tokenId: str = None, priceEur: float = None
     })
     lst.insert(ignore_permissions=True)
 
+<<<<<<< HEAD
     faria = tokenId
+=======
+>>>>>>> 69f6bd8 (Refactor: Move all config values to Nastavenia doctype + update API)
     frappe.db.set_value("BC Token", tok.name, "stav", "listed")
 
     return {"success": True, "listing": {"name": lst.name}}
@@ -239,16 +269,29 @@ def buy_listing(buyerId: str = None, listingId: str = None):
 
     tok = frappe.get_doc("BC Token", lst.token)
 
+<<<<<<< HEAD
     # Optional yearly limit (20)
+=======
+    # Yearly limit (from settings)
+    settings = get_settings()
+    max_per_year = int(settings.max_primary_tokens_per_user or 20)
+
+>>>>>>> 69f6bd8 (Refactor: Move all config values to Nastavenia doctype + update API)
     owned = frappe.db.count("BC Token", {
         "aktualny_drzitel": buyer.name,
         "vydany_rok": tok.vydany_rok,
         "stav": ["in", ["active", "listed"]]
     })
 
+<<<<<<< HEAD
     if owned >= 20:
         frappe.throw(
             f"Limit 20 tokenov pre rok {tok.vydany_rok} dosiahnutý",
+=======
+    if owned >= max_per_year:
+        frappe.throw(
+            f"Limit {max_per_year} tokenov pre rok {tok.vydany_rok} dosiahnutý",
+>>>>>>> 69f6bd8 (Refactor: Move all config values to Nastavenia doctype + update API)
             frappe.ValidationError
         )
 
