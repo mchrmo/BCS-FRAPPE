@@ -84,29 +84,23 @@ def verify_clerk_bearer_and_get_sub():
 # ---------------------------------------------------
 
 def clerk_api(path, method="GET", json_body=None):
-    """Call Clerk Management API (always via issuer)."""
-    base = _clerk_issuer()   # clerk_api_url NEEXISTUJE → používame issuer
-    url = f"{base.rstrip('/')}{path}"
+    base = "https://api.clerk.com"   # <-- TOTO JE JEDINÉ SPRÁVNE
+    url = f"{base}{path}"
 
     headers = {
         "Authorization": f"Bearer {_clerk_secret()}",
         "Content-Type": "application/json"
     }
 
-    try:
-        resp = requests.request(method, url, headers=headers, json=json_body, timeout=30)
-    except Exception as e:
-        frappe.throw(f"Clerk API connection error: {e}")
+    resp = requests.request(method, url, headers=headers, json=json_body, timeout=30)
 
-    if not (200 <= resp.status_code < 300):
-        try:
-            detail = resp.json()
-        except Exception:
-            detail = resp.text
-
+    if not resp.ok:
+        try: detail = resp.json()
+        except: detail = resp.text
         frappe.throw(f"Clerk API error {resp.status_code}: {detail}", frappe.ValidationError)
 
     return resp.json()
+
 
 # ---------------------------------------------------
 # User helpers
