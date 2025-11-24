@@ -17,7 +17,7 @@ def get_settings():
     try:
         return frappe.get_single("Nastavenia")
     except Exception:
-        frappe.throw("Doctype 'Nastavenia' neexistuje", frappe.ConfigurationError)
+        frappe.throw("Doctype 'Nastavenia' neexistuje", frappe.ValidationError)
 
 # ---------------------------------------------------
 # Clerk helpers
@@ -26,14 +26,16 @@ def get_settings():
 def _clerk_issuer():
     settings = get_settings()
     if not settings.clerk_issuer:
-        frappe.throw("Clerk issuer is not configured", frappe.ConfigurationError)
+        frappe.throw("Clerk issuer is not configured", frappe.ValidationError)
     return settings.clerk_issuer.rstrip("/")
+
 
 def _clerk_secret():
     settings = get_settings()
     if not settings.clerk_secret_key:
-        frappe.throw("Clerk secret key is not configured", frappe.ConfigurationError)
+        frappe.throw("Clerk secret key is not configured", frappe.ValidationError)
     return settings.clerk_secret_key
+
 
 def _jwks_client():
     cache_key = "bc_jwks_url"
@@ -46,14 +48,19 @@ def _jwks_client():
 
     return PyJWKClient(url)
 
+
 def verify_clerk_bearer_and_get_sub():
+    """
+    Validates Clerk JWT from header:
+        X-Clerk-Authorization: Bearer <jwt>
+    Returns: (sub, payload)
+    """
     auth = (
         frappe.get_request_header("X-Clerk-Authorization")
         or frappe.get_request_header("x-clerk-authorization")
+        or frappe.get_request_header("Authorization")
+        or frappe.get_request_header("authorization")
     )
-
-    if not auth:
-        auth = frappe.get_request_header("Authorization") or frappe.get_request_header("authorization")
 
     if not auth:
         frappe.throw("Missing Clerk auth header", frappe.PermissionError)
@@ -77,10 +84,13 @@ def verify_clerk_bearer_and_get_sub():
     except Exception as e:
         frappe.throw(f"Invalid Clerk token: {e}", frappe.PermissionError)
 
+# ---------------------------------------------------
+# Clerk Management API (server → server)
+# ---------------------------------------------------
 
 def clerk_api(path, method="GET", json_body=None):
     """
-    Clerk Management API (server → server)
+    Uses Clerk secret key to call Management API.
     """
     settings = get_settings()
 
@@ -103,7 +113,7 @@ def clerk_api(path, method="GET", json_body=None):
         except Exception:
             detail = resp.text
 
-        frappe.throw(f"Clerk API error {resp.status_code}: {detail}")
+        frappe.throw(f"Clerk API error {resp.status_code}: {detail}", frappe.ValidationError)
 
     return resp.json()
 
@@ -115,7 +125,6 @@ def ensure_bc_user_by_clerk(clerk_id: str, email: str | None = None):
     """
     Upsert BC Pouzivatel podľa clerk_id.
     """
-
     name = frappe.db.get_value("BC Pouzivatel", {"clerk_id": clerk_id}, "name")
 
     if name:
@@ -126,7 +135,7 @@ def ensure_bc_user_by_clerk(clerk_id: str, email: str | None = None):
 
         return doc
 
-    # email nie je → pokúsime sa vytiahnuť z Clerka
+    # email nie je → pokúsime sa vyčítať z Clerk API
     if not email:
         try:
             u = clerk_api(f"/v1/users/{clerk_id}")
@@ -154,9 +163,7 @@ def ensure_bc_user_by_clerk(clerk_id: str, email: str | None = None):
 # ---------------------------------------------------
 
 def ensure_settings():
-    """
-    Vráti BC Nastavenia (Single). Ak neexistuje, vytvorí default.
-    """
+    """ Creates BC Nastavenia if not exists (legacy). """
     try:
         return frappe.get_single("BC Nastavenia")
     except Exception:
@@ -172,7 +179,10 @@ def ensure_settings():
 _apns_cached_token = {"token": None, "iat": 0}
 
 def _build_apns_jwt():
+    """APNs ES256 JWT used for push sending."""
     now = int(time.time())
+
+    # cache for 50 min
     if _apns_cached_token["token"] and now - _apns_cached_token["iat"] < 50 * 60:
         return _apns_cached_token["token"]
 
@@ -183,13 +193,13 @@ def _build_apns_jwt():
     team_id = settings.apn_team_id
 
     if not (key_file and key_id and team_id):
-        frappe.throw("APNs config missing (check Nastavenia doctype)", frappe.ConfigurationError)
+        frappe.throw("APNs config missing (check Nastavenia doctype)", frappe.ValidationError)
 
     try:
         with open(key_file, "rb") as f:
             p8 = f.read()
     except Exception as e:
-        frappe.throw(f"APNs key file error: {e}")
+        frappe.throw(f"APNs key file error: {e}", frappe.ValidationError)
 
     token = jwt.encode(
         {"iss": team_id, "iat": now},
@@ -206,6 +216,7 @@ def _build_apns_jwt():
 
 
 def send_voip_push(device_token: str, payload: dict):
+    """Send Apple VoIP push to one device."""
     settings = get_settings()
 
     bundle_id = settings.apn_bundle_id
@@ -215,6 +226,7 @@ def send_voip_push(device_token: str, payload: dict):
     url = f"{host}/3/device/{device_token}"
 
     jwt_token = _build_apns_jwt()
+
     headers = {
         "authorization": f"bearer {jwt_token}",
         "apns-topic": f"{bundle_id}.voip",
@@ -233,7 +245,7 @@ def send_voip_push(device_token: str, payload: dict):
             detail = resp.text
 
         frappe.log_error(f"APNs error {resp.status_code}: {detail}", "BC APNs")
-        frappe.throw(f"APNs error {resp.status_code}: {detail}")
+        frappe.throw(f"APNs error {resp.status_code}: {detail}", frappe.ValidationError)
 
     return {"apns_id": resp.headers.get("apns-id")}
 
@@ -243,14 +255,14 @@ def send_voip_push(device_token: str, payload: dict):
 
 def upsert_child_device_for_user(user_doc, voip_token: str = None, apns_token: str = None):
     """
-    - odstráni duplicity z iných userov
-    - update ak existuje
-    - append ak neexistuje
+    - Removes duplicates from other users
+    - Updates existing device entry
+    - Creates new if not exists
     """
 
     modified = False
 
-    # odstránenie duplicitných zariadení z iných používateľov
+    # Remove duplicates (unique token globally)
     if voip_token:
         rows = frappe.get_all(
             "BC Zariadenie",
@@ -261,6 +273,7 @@ def upsert_child_device_for_user(user_doc, voip_token: str = None, apns_token: s
             if r["parent"] != user_doc.name:
                 frappe.db.delete("BC Zariadenie", {"name": r["name"]})
 
+    # Update existing row
     found = None
     for ch in user_doc.get("zariadenie") or []:
         if voip_token and ch.voip_token == voip_token:
@@ -280,6 +293,7 @@ def upsert_child_device_for_user(user_doc, voip_token: str = None, apns_token: s
             modified = True
 
     else:
+        # Create new
         user_doc.append("zariadenie", {
             "doctype": "BC Zariadenie",
             "voip_token": voip_token,
