@@ -108,7 +108,7 @@ def accept():
 # -----------------------------------------------------------------------------
 # END CALL
 # -----------------------------------------------------------------------------
-@frappe.whitelist(methods=["POST"], allow_guest=True])
+@frappe.whitelist(methods=["POST"], allow_guest=True)
 def end():
     """Ukončenie hovoru jednou zo strán."""
     clerk_id, _ = verify_clerk_bearer_and_get_sub()
