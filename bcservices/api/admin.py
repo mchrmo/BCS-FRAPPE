@@ -2,7 +2,8 @@
 
 import frappe
 from frappe.utils import now_datetime
-from .utils import verify_clerk_bearer_and_get_sub, clerk_api, ensure_settings
+from .utils import verify_clerk_bearer_and_get_sub, clerk_api, get_settings
+
 # -----------------------------------------------------------------------------
 # INTERNAL – CHECK ADMIN ROLE
 # -----------------------------------------------------------------------------
@@ -23,8 +24,6 @@ def _require_admin():
 def list_clients():
     """
     iOS Admin app → /api/method/bcservices.api.admin.list_clients
-    Overí Clerk JWT (musí mať role='admin'), a vráti zoznam klientov
-    + ich zariadenia + ich tokeny.
     """
     _require_admin()
 
@@ -35,21 +34,18 @@ def list_clients():
 
     out = []
     for u in users:
-        # devices
         devices = frappe.get_all(
             "BC Zariadenie",
             filters={"parent": u["name"]},
             fields=["voip_token", "apns_token", "modified"]
         )
 
-        # tokens
         tokens = frappe.get_all(
             "BC Token",
             filters={"aktualny_drzitel": u["name"]},
             fields=["minuty_ostavajuce", "stav"]
         )
 
-        # username from Clerk
         username = None
         try:
             cu = clerk_api(f"/v1/users/{u['clerk_id']}")
@@ -90,7 +86,7 @@ def mint(quantity: int = None, priceEur: float = None, year: int = None):
     if qty <= 0 or price <= 0:
         frappe.throw("Invalid quantity/priceEur", frappe.ValidationError)
 
-    settings = ensure_settings()
+    settings = get_settings()
 
     for _ in range(qty):
         d = frappe.get_doc({
@@ -102,7 +98,8 @@ def mint(quantity: int = None, priceEur: float = None, year: int = None):
         })
         d.insert(ignore_permissions=True)
 
-    settings.aktualna_cena_eur = price
+    settings.friday_base_price_eur = price
+    settings.friday_base_year = y
     settings.save(ignore_permissions=True)
 
     return {
@@ -112,13 +109,12 @@ def mint(quantity: int = None, priceEur: float = None, year: int = None):
         "year": y
     }
 
+# -----------------------------------------------------------------------------
+# ADMIN – TEST SETTINGS ENDPOINT
+# -----------------------------------------------------------------------------
 
 @frappe.whitelist(methods=["GET"], allow_guest=False)
 def test_settings():
-    """
-    Dev endpoint – zobrazí všetky hodnoty z DocType Nastavenie,
-    aby si vedel či backend nečíta site_config.
-    """
     try:
         settings = frappe.get_single("Nastavenie")
     except Exception as e:
@@ -166,12 +162,11 @@ def set_price(newPrice: float = None, repriceTreasury: int = 0):
     if price <= 0:
         frappe.throw("Invalid newPrice", frappe.ValidationError)
 
-    settings = ensure_settings()
-    settings.aktualna_cena_eur = price
+    settings = get_settings()
+    settings.friday_base_price_eur = price
     settings.save(ignore_permissions=True)
 
     if reprice:
-        # tokens without holder = treasury
         treasury = frappe.get_all(
             "BC Token",
             filters={"aktualny_drzitel": ["is", "null"], "stav": "active"},
