@@ -112,6 +112,45 @@ def mint(quantity: int = None, priceEur: float = None, year: int = None):
         "year": y
     }
 
+
+@frappe.whitelist(methods=["GET"], allow_guest=False)
+def test_settings():
+    """
+    Dev endpoint – zobrazí všetky hodnoty z DocType Nastavenie,
+    aby si vedel či backend nečíta site_config.
+    """
+    try:
+        settings = frappe.get_single("Nastavenie")
+    except Exception as e:
+        frappe.throw(f"Cannot load Nastavenie: {e}", frappe.DoesNotExistError)
+
+    return {
+        "clerk": {
+            "issuer": settings.clerk_issuer,
+            "secret_key": "***" if settings.clerk_secret_key else None,
+            "jwks_url": settings.clerk_jwks_url,
+        },
+        "apn": {
+            "team_id": settings.apn_team_id,
+            "key_id": settings.apn_key_id,
+            "bundle_id": getattr(settings, "apn_bundle_id", None),
+            "key_file": settings.apn_key_file,
+            "production": settings.apn_production,
+        },
+        "stripe": {
+            "secret_key": "***" if settings.stripe_secret_key else None,
+            "webhook_secret": "***" if settings.stripe_webhook_secret else None,
+        },
+        "pricing": {
+            "base_price_eur": settings.friday_base_price_eur,
+            "year": settings.friday_base_year,
+            "limit": settings.max_primary_tokens_per_user,
+        },
+        "app": {
+            "app_url": settings.app_url
+        }
+    }
+
 # -----------------------------------------------------------------------------
 # ADMIN – CHANGE TOKEN PRICE
 # -----------------------------------------------------------------------------
