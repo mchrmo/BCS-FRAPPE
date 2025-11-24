@@ -13,7 +13,7 @@ import httpx
 # ---------------------------------------------------
 
 def get_settings():
-    """Load SINGLE doctype 'Nastavenie' (singular)."""
+    """Load SINGLE doctype 'Nastavenie'."""
     try:
         return frappe.get_single("Nastavenie")
     except Exception:
@@ -52,11 +52,7 @@ def _jwks_client():
 
 
 def verify_clerk_bearer_and_get_sub():
-    """
-    Validates Clerk JWT from header:
-        X-Clerk-Authorization: Bearer <jwt>
-    Returns: (sub, payload)
-    """
+    """Validate Clerk JWT."""
     auth = (
         frappe.get_request_header("X-Clerk-Authorization")
         or frappe.get_request_header("x-clerk-authorization")
@@ -67,7 +63,7 @@ def verify_clerk_bearer_and_get_sub():
     if not auth:
         frappe.throw("Missing Clerk auth header", frappe.PermissionError)
 
-    token = auth.split(" ", 1)[1] if auth.startswith("Bearer ") else auth
+    token = auth.split(" ", 1)[1] if auth.startswith("Bearer ") else auth.strip()
 
     try:
         signing_key = _jwks_client().get_signing_key_from_jwt(token)
@@ -88,10 +84,8 @@ def verify_clerk_bearer_and_get_sub():
 # ---------------------------------------------------
 
 def clerk_api(path, method="GET", json_body=None):
-    """Call Clerk Management API using secret key."""
-    settings = get_settings()
-
-    base = settings.clerk_api_url or _clerk_issuer()
+    """Call Clerk Management API (always via issuer)."""
+    base = _clerk_issuer()   # clerk_api_url NEEXISTUJE → používame issuer
     url = f"{base.rstrip('/')}{path}"
 
     headers = {
@@ -130,12 +124,11 @@ def ensure_bc_user_by_clerk(clerk_id: str, email: str | None = None):
 
         return doc
 
-    # fetch email from Clerk API if missing
+    # fetch email from Clerk if needed
     if not email:
         try:
             u = clerk_api(f"/v1/users/{clerk_id}")
             primary_id = u.get("primary_email_address_id")
-
             if primary_id:
                 for e in u.get("email_addresses", []):
                     if e.get("id") == primary_id:
@@ -154,16 +147,14 @@ def ensure_bc_user_by_clerk(clerk_id: str, email: str | None = None):
     return doc
 
 # ---------------------------------------------------
-# APNs / VOIP PUSH
+# APNs / VoIP JWT
 # ---------------------------------------------------
 
 _apns_cached_token = {"token": None, "iat": 0}
 
 def _build_apns_jwt():
-    """Create APNs ES256 JWT for VoIP pushes."""
     now = int(time.time())
 
-    # Cached for 50 minutes
     if _apns_cached_token["token"] and now - _apns_cached_token["iat"] < 3000:
         return _apns_cached_token["token"]
 
@@ -174,7 +165,7 @@ def _build_apns_jwt():
     team_id = settings.apn_team_id
 
     if not (key_file and key_id and team_id):
-        frappe.throw("APNs config missing (check Nastavenie doctype)", frappe.ValidationError)
+        frappe.throw("APNs config missing in Nastavenie", frappe.ValidationError)
 
     try:
         with open(key_file, "rb") as f:
@@ -190,18 +181,17 @@ def _build_apns_jwt():
     )
 
     if isinstance(token, bytes):
-        token = token.decode("utf-8")
+        token = token.decode()
 
     _apns_cached_token.update({"token": token, "iat": now})
     return token
 
 
 def send_voip_push(device_token: str, payload: dict):
-    """Send Apple VoIP push."""
     settings = get_settings()
 
     bundle_id = settings.apn_bundle_id
-    prod = cint(settings.apn_production or 0) == 1
+    prod = cint(settings.apn_production) == 1
 
     host = "https://api.push.apple.com" if prod else "https://api.sandbox.push.apple.com"
     url = f"{host}/3/device/{device_token}"
@@ -212,7 +202,6 @@ def send_voip_push(device_token: str, payload: dict):
         "authorization": f"bearer {jwt_token}",
         "apns-topic": f"{bundle_id}.voip",
         "apns-push-type": "voip",
-        "apns-expiration": str(int(time.time()) + 30),
         "content-type": "application/json",
     }
 
@@ -226,24 +215,18 @@ def send_voip_push(device_token: str, payload: dict):
             detail = resp.text
 
         frappe.log_error(f"APNs error {resp.status_code}: {detail}", "BC APNs")
-        frappe.throw(f"APNs error {resp.status_code}: {detail}", frappe.ValidationError)
+        frappe.throw(f"APNs error {resp.status_code}: {detail}")
 
     return {"apns_id": resp.headers.get("apns-id")}
 
 # ---------------------------------------------------
-# Device helper – BC Zariadenie
+# Device helper
 # ---------------------------------------------------
 
-def upsert_child_device_for_user(user_doc, voip_token: str = None, apns_token: str = None):
-    """
-    - Removes duplicates in BC Zariadenie
-    - Updates existing entry
-    - Adds new device row
-    """
-
+def upsert_child_device_for_user(user_doc, voip_token=None, apns_token=None):
     modified = False
 
-    # Remove duplicates
+    # remove duplicates
     if voip_token:
         rows = frappe.get_all(
             "BC Zariadenie",
@@ -254,7 +237,7 @@ def upsert_child_device_for_user(user_doc, voip_token: str = None, apns_token: s
             if r["parent"] != user_doc.name:
                 frappe.db.delete("BC Zariadenie", {"name": r["name"]})
 
-    # Try update existing entry
+    # find existing
     found = None
     for ch in user_doc.get("zariadenie") or []:
         if voip_token and ch.voip_token == voip_token:
@@ -265,17 +248,14 @@ def upsert_child_device_for_user(user_doc, voip_token: str = None, apns_token: s
             break
 
     if found:
-        # update
         if voip_token and found.voip_token != voip_token:
             found.voip_token = voip_token
             modified = True
-
         if apns_token and found.apns_token != apns_token:
             found.apns_token = apns_token
             modified = True
 
     else:
-        # create
         user_doc.append("zariadenie", {
             "doctype": "BC Zariadenie",
             "voip_token": voip_token,
