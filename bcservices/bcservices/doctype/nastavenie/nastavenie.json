@@ -10,6 +10,7 @@
   "clerk_jwks_url",
   "apn_team_id",
   "apn_key_id",
+  "apn_bundle_id",
   "apn_key_file",
   "apn_production",
   "stripe_secret_key",
@@ -44,6 +45,11 @@
    "fieldname": "apn_key_id",
    "fieldtype": "Data",
    "label": "apn_key_id"
+  },
+  {
+   "fieldname": "apn_bundle_id",
+   "fieldtype": "Data",
+   "label": "apn_bundle_id"
   },
   {
    "fieldname": "apn_key_file",
@@ -91,7 +97,7 @@
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2025-11-23 14:38:20.577706",
+ "modified": "2025-11-24 20:15:00.000000",
  "modified_by": "Administrator",
  "module": "BCServices",
  "name": "Nastavenie",
