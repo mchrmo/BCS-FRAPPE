@@ -53,8 +53,4 @@ def supply(year: int = None):
         "treasuryAvailable": len(treasury_tokens),
         "totalMinted": minted,
         "totalSold": sold
-<<<<<<< HEAD
     }
-=======
-    }
->>>>>>> 69f6bd8 (Refactor: Move all config values to Nastavenia doctype + update API)

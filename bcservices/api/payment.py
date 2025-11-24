@@ -4,15 +4,6 @@ import json
 import frappe
 import stripe
 from frappe.utils import now_datetime
-<<<<<<< HEAD
-
-from .utils import (
-    verify_clerk_bearer_and_get_sub,
-    ensure_bc_user_by_clerk,
-    ensure_settings
-)
-=======
->>>>>>> 69f6bd8 (Refactor: Move all config values to Nastavenia doctype + update API)
 
 from .utils import (
     verify_clerk_bearer_and_get_sub,
@@ -40,20 +31,6 @@ def checkout_treasury(userId: str = None, quantity: int = None, year: int = None
 
     clerk_id, _ = verify_clerk_bearer_and_get_sub()
 
-<<<<<<< HEAD
-# -----------------------------------------------------------------------------
-# CHECKOUT – TREASURY
-# -----------------------------------------------------------------------------
-
-@frappe.whitelist(methods=["POST"], allow_guest=True)
-def checkout_treasury(userId: str = None, quantity: int = None, year: int = None):
-    """
-    iOS → vytvorí Stripe Checkout session na kúpu NEW tokenov z treasury.
-    """
-    clerk_id, _ = verify_clerk_bearer_and_get_sub()
-
-=======
->>>>>>> 69f6bd8 (Refactor: Move all config values to Nastavenia doctype + update API)
     data = frappe.local.form_dict
     userId = userId or data.get("userId") or clerk_id
     quantity = int(quantity or data.get("quantity") or 0)
@@ -64,16 +41,6 @@ def checkout_treasury(userId: str = None, quantity: int = None, year: int = None
 
     user = ensure_bc_user_by_clerk(userId)
 
-<<<<<<< HEAD
-    settings = ensure_settings()
-    unit_price = float(settings.aktualna_cena_eur or 0)
-
-    if unit_price <= 0:
-        frappe.throw("Treasury price not set", frappe.ValidationError)
-
-    # Limit 20 per year
-    max_per_year = int(frappe.conf.get("max_primary_tokens_per_user") or 20)
-=======
     # Load Doctype Nastavenia
     settings = get_settings()
 
@@ -84,7 +51,6 @@ def checkout_treasury(userId: str = None, quantity: int = None, year: int = None
     # Yearly limit
     max_per_year = int(settings.max_primary_tokens_per_user or 20)
 
->>>>>>> 69f6bd8 (Refactor: Move all config values to Nastavenia doctype + update API)
     owned = frappe.db.count(
         "BC Token",
         {
@@ -100,11 +66,7 @@ def checkout_treasury(userId: str = None, quantity: int = None, year: int = None
             frappe.ValidationError,
         )
 
-<<<<<<< HEAD
-    # Availability
-=======
     # Treasury availability
->>>>>>> 69f6bd8 (Refactor: Move all config values to Nastavenia doctype + update API)
     available = frappe.db.count(
         "BC Token",
         {
@@ -133,13 +95,9 @@ def checkout_treasury(userId: str = None, quantity: int = None, year: int = None
     )
     p.insert(ignore_permissions=True)
 
-<<<<<<< HEAD
-    # Stripe Checkout
-=======
     # Stripe Checkout — URLs from Nastavenia
     app_url = (settings.app_url or "").rstrip("/")
 
->>>>>>> 69f6bd8 (Refactor: Move all config values to Nastavenia doctype + update API)
     session = stripe.checkout.Session.create(
         mode="payment",
         currency="eur",
@@ -148,24 +106,13 @@ def checkout_treasury(userId: str = None, quantity: int = None, year: int = None
                 "price_data": {
                     "currency": "eur",
                     "unit_amount": int(round(unit_price * 100)),
-<<<<<<< HEAD
-                    "product_data": {
-                        "name": f"Piatkový token ({year})"
-                    },
-=======
                     "product_data": {"name": f"Piatkový token ({year})"},
->>>>>>> 69f6bd8 (Refactor: Move all config values to Nastavenia doctype + update API)
                 },
                 "quantity": quantity,
             }
         ],
-<<<<<<< HEAD
-        success_url=f'{frappe.conf.get("app_url").rstrip("/")}/?payment=success',
-        cancel_url=f'{frappe.conf.get("app_url").rstrip("/")}/?payment=cancel',
-=======
         success_url=f"{app_url}/?payment=success",
         cancel_url=f"{app_url}/?payment=cancel",
->>>>>>> 69f6bd8 (Refactor: Move all config values to Nastavenia doctype + update API)
         metadata={
             "type": "treasury",
             "buyerId": userId,
@@ -180,17 +127,6 @@ def checkout_treasury(userId: str = None, quantity: int = None, year: int = None
     return {"url": session["url"]}
 
 
-<<<<<<< HEAD
-# -----------------------------------------------------------------------------
-# CHECKOUT – LISTING (MARKET)
-# -----------------------------------------------------------------------------
-
-@frappe.whitelist(methods=["POST"], allow_guest=True)
-def checkout_listing(buyerId: str = None, listingId: str = None):
-    """
-    iOS → Stripe Checkout pre kúpu TOKENU z marketplace listing-u.
-    """
-=======
 # -------------------------------------------------------------------------
 # CHECKOUT – LISTING
 # -------------------------------------------------------------------------
@@ -199,7 +135,6 @@ def checkout_listing(buyerId: str = None, listingId: str = None):
 def checkout_listing(buyerId: str = None, listingId: str = None):
     _set_stripe_key()
 
->>>>>>> 69f6bd8 (Refactor: Move all config values to Nastavenia doctype + update API)
     clerk_id, _ = verify_clerk_bearer_and_get_sub()
 
     data = frappe.local.form_dict
@@ -208,11 +143,6 @@ def checkout_listing(buyerId: str = None, listingId: str = None):
 
     if not buyerId or not listingId:
         frappe.throw("Missing buyerId/listingId", frappe.ValidationError)
-<<<<<<< HEAD
-
-    buyer = ensure_bc_user_by_clerk(buyerId)
-=======
->>>>>>> 69f6bd8 (Refactor: Move all config values to Nastavenia doctype + update API)
 
     buyer = ensure_bc_user_by_clerk(buyerId)
     lst = frappe.get_doc("BC Inzerat", listingId)
@@ -254,13 +184,8 @@ def checkout_listing(buyerId: str = None, listingId: str = None):
                 "quantity": 1,
             }
         ],
-<<<<<<< HEAD
-        success_url=f'{frappe.conf.get("app_url").rstrip("/")}/?payment=success',
-        cancel_url=f'{frappe.conf.get("app_url").rstrip("/")}/?payment=cancel',
-=======
         success_url=f"{app_url}/?payment=success",
         cancel_url=f"{app_url}/?payment=cancel",
->>>>>>> 69f6bd8 (Refactor: Move all config values to Nastavenia doctype + update API)
         metadata={
             "type": "listing",
             "buyerId": buyerId,
@@ -274,15 +199,9 @@ def checkout_listing(buyerId: str = None, listingId: str = None):
     return {"url": session["url"]}
 
 
-<<<<<<< HEAD
-# -----------------------------------------------------------------------------
-# STRIPE WEBHOOK
-# -----------------------------------------------------------------------------
-=======
 # -------------------------------------------------------------------------
 # STRIPE WEBHOOK
 # -------------------------------------------------------------------------
->>>>>>> 69f6bd8 (Refactor: Move all config values to Nastavenia doctype + update API)
 
 @frappe.whitelist(methods=["POST"], allow_guest=True)
 def stripe_webhook():
@@ -290,11 +209,6 @@ def stripe_webhook():
     Handles Stripe checkout webhooks.
     MUST be allow_guest=True — Stripe nemá session ani token.
     """
-<<<<<<< HEAD
-    payload = frappe.request.get_data(as_text=False)
-    sig = frappe.get_request_header("Stripe-Signature")
-    wh_secret = frappe.conf.get("stripe_webhook_secret")
-=======
     _set_stripe_key()
 
     payload = frappe.request.get_data(as_text=False)
@@ -305,7 +219,6 @@ def stripe_webhook():
 
     if not wh_secret:
         frappe.throw("Stripe webhook secret missing in Nastavenia", frappe.ConfigurationError)
->>>>>>> 69f6bd8 (Refactor: Move all config values to Nastavenia doctype + update API)
 
     try:
         event = stripe.Webhook.construct_event(payload, sig, wh_secret)
@@ -357,15 +270,9 @@ def stripe_webhook():
     return {"received": True}
 
 
-<<<<<<< HEAD
-# -----------------------------------------------------------------------------
-# FULFILLMENT HELPERS
-# -----------------------------------------------------------------------------
-=======
 # -------------------------------------------------------------------------
 # FULFILLMENT HELPERS
 # -------------------------------------------------------------------------
->>>>>>> 69f6bd8 (Refactor: Move all config values to Nastavenia doctype + update API)
 
 def _fulfill_treasury(buyer_clerk_id: str, quantity: int, year: int):
     """Assign newly purchased treasury tokens to the buyer."""
@@ -392,15 +299,9 @@ def _fulfill_treasury(buyer_clerk_id: str, quantity: int, year: int):
     for token_name in names:
         frappe.db.set_value("BC Token", token_name, "aktualny_drzitel", user.name)
 
-<<<<<<< HEAD
-    # Create purchase items (optional)
-    settings = ensure_settings()
-    unit_price = float(settings.aktualna_cena_eur or 0)
-=======
     # Create purchase items
     settings = get_settings()
     unit_price = float(settings.friday_base_price_eur or 0)
->>>>>>> 69f6bd8 (Refactor: Move all config values to Nastavenia doctype + update API)
 
     for token_name in names:
         try:

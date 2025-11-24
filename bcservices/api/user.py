@@ -57,8 +57,4 @@ def balance(userId: str = None):
             }
             for t in tokens
         ]
-<<<<<<< HEAD
     }
-=======
-    }
->>>>>>> 69f6bd8 (Refactor: Move all config values to Nastavenia doctype + update API)

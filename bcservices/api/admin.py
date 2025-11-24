@@ -141,8 +141,4 @@ def set_price(newPrice: float = None, repriceTreasury: int = 0):
         for n in treasury:
             frappe.db.set_value("BC Token", n, "povodna_cena_eur", price)
 
-<<<<<<< HEAD
     return {"success": True, "priceEur": price}
-=======
-    return {"success": True, "priceEur": price}
->>>>>>> 69f6bd8 (Refactor: Move all config values to Nastavenia doctype + update API)
