@@ -5,19 +5,19 @@ import frappe
 import jwt
 import requests
 from jwt import PyJWKClient
-from frappe.utils import now_datetime, cint, flt
+from frappe.utils import cint
 import httpx
-from pathlib import Path
 
 # ---------------------------------------------------
 # Settings loader
 # ---------------------------------------------------
 
 def get_settings():
+    """Load SINGLE doctype 'Nastavenie' (singular)."""
     try:
-        return frappe.get_single("Nastavenia")
+        return frappe.get_single("Nastavenie")
     except Exception:
-        frappe.throw("Doctype 'Nastavenia' neexistuje", frappe.ValidationError)
+        frappe.throw("Doctype 'Nastavenie' neexistuje", frappe.ValidationError)
 
 # ---------------------------------------------------
 # Clerk helpers
@@ -39,13 +39,15 @@ def _clerk_secret():
 
 def _jwks_client():
     cache_key = "bc_jwks_url"
-    url = frappe.cache().get_value(cache_key)
+    cached = frappe.cache().get_value(cache_key)
 
-    if not url:
-        settings = get_settings()
-        url = settings.clerk_jwks_url or f"{_clerk_issuer()}/.well-known/jwks.json"
-        frappe.cache().set_value(cache_key, url, expires_in_sec=3600)
+    if cached:
+        return PyJWKClient(cached)
 
+    settings = get_settings()
+    url = settings.clerk_jwks_url or f"{_clerk_issuer()}/.well-known/jwks.json"
+
+    frappe.cache().set_value(cache_key, url, expires_in_sec=3600)
     return PyJWKClient(url)
 
 
@@ -65,10 +67,7 @@ def verify_clerk_bearer_and_get_sub():
     if not auth:
         frappe.throw("Missing Clerk auth header", frappe.PermissionError)
 
-    if auth.startswith("Bearer "):
-        token = auth.split(" ", 1)[1]
-    else:
-        token = auth.strip()
+    token = auth.split(" ", 1)[1] if auth.startswith("Bearer ") else auth
 
     try:
         signing_key = _jwks_client().get_signing_key_from_jwt(token)
@@ -89,9 +88,7 @@ def verify_clerk_bearer_and_get_sub():
 # ---------------------------------------------------
 
 def clerk_api(path, method="GET", json_body=None):
-    """
-    Uses Clerk secret key to call Management API.
-    """
+    """Call Clerk Management API using secret key."""
     settings = get_settings()
 
     base = settings.clerk_api_url or _clerk_issuer()
@@ -122,9 +119,7 @@ def clerk_api(path, method="GET", json_body=None):
 # ---------------------------------------------------
 
 def ensure_bc_user_by_clerk(clerk_id: str, email: str | None = None):
-    """
-    Upsert BC Pouzivatel podľa clerk_id.
-    """
+    """Upsert BC Pouzivatel by clerk_id."""
     name = frappe.db.get_value("BC Pouzivatel", {"clerk_id": clerk_id}, "name")
 
     if name:
@@ -135,7 +130,7 @@ def ensure_bc_user_by_clerk(clerk_id: str, email: str | None = None):
 
         return doc
 
-    # email nie je → pokúsime sa vyčítať z Clerk API
+    # fetch email from Clerk API if missing
     if not email:
         try:
             u = clerk_api(f"/v1/users/{clerk_id}")
@@ -159,31 +154,17 @@ def ensure_bc_user_by_clerk(clerk_id: str, email: str | None = None):
     return doc
 
 # ---------------------------------------------------
-# BC Nastavenia helper
-# ---------------------------------------------------
-
-def ensure_settings():
-    """ Creates BC Nastavenia if not exists (legacy). """
-    try:
-        return frappe.get_single("BC Nastavenia")
-    except Exception:
-        doc = frappe.new_doc("BC Nastavenia")
-        doc.aktualna_cena_eur = 0
-        doc.insert(ignore_permissions=True)
-        return doc
-
-# ---------------------------------------------------
 # APNs / VOIP PUSH
 # ---------------------------------------------------
 
 _apns_cached_token = {"token": None, "iat": 0}
 
 def _build_apns_jwt():
-    """APNs ES256 JWT used for push sending."""
+    """Create APNs ES256 JWT for VoIP pushes."""
     now = int(time.time())
 
-    # cache for 50 min
-    if _apns_cached_token["token"] and now - _apns_cached_token["iat"] < 50 * 60:
+    # Cached for 50 minutes
+    if _apns_cached_token["token"] and now - _apns_cached_token["iat"] < 3000:
         return _apns_cached_token["token"]
 
     settings = get_settings()
@@ -193,7 +174,7 @@ def _build_apns_jwt():
     team_id = settings.apn_team_id
 
     if not (key_file and key_id and team_id):
-        frappe.throw("APNs config missing (check Nastavenia doctype)", frappe.ValidationError)
+        frappe.throw("APNs config missing (check Nastavenie doctype)", frappe.ValidationError)
 
     try:
         with open(key_file, "rb") as f:
@@ -216,7 +197,7 @@ def _build_apns_jwt():
 
 
 def send_voip_push(device_token: str, payload: dict):
-    """Send Apple VoIP push to one device."""
+    """Send Apple VoIP push."""
     settings = get_settings()
 
     bundle_id = settings.apn_bundle_id
@@ -255,14 +236,14 @@ def send_voip_push(device_token: str, payload: dict):
 
 def upsert_child_device_for_user(user_doc, voip_token: str = None, apns_token: str = None):
     """
-    - Removes duplicates from other users
-    - Updates existing device entry
-    - Creates new if not exists
+    - Removes duplicates in BC Zariadenie
+    - Updates existing entry
+    - Adds new device row
     """
 
     modified = False
 
-    # Remove duplicates (unique token globally)
+    # Remove duplicates
     if voip_token:
         rows = frappe.get_all(
             "BC Zariadenie",
@@ -273,7 +254,7 @@ def upsert_child_device_for_user(user_doc, voip_token: str = None, apns_token: s
             if r["parent"] != user_doc.name:
                 frappe.db.delete("BC Zariadenie", {"name": r["name"]})
 
-    # Update existing row
+    # Try update existing entry
     found = None
     for ch in user_doc.get("zariadenie") or []:
         if voip_token and ch.voip_token == voip_token:
@@ -284,6 +265,7 @@ def upsert_child_device_for_user(user_doc, voip_token: str = None, apns_token: s
             break
 
     if found:
+        # update
         if voip_token and found.voip_token != voip_token:
             found.voip_token = voip_token
             modified = True
@@ -293,7 +275,7 @@ def upsert_child_device_for_user(user_doc, voip_token: str = None, apns_token: s
             modified = True
 
     else:
-        # Create new
+        # create
         user_doc.append("zariadenie", {
             "doctype": "BC Zariadenie",
             "voip_token": voip_token,
