@@ -14,10 +14,10 @@ from .utils import (
 def start():
     """
     ADMIN → CLIENT (or CLIENT → ADMIN)
-    Vytvorí záznam BC Call a pošle VoIP push advisorovi.
+    Vytvorí záznam v 'BC Dennik hovorov' a pošle VoIP push poradcovi / klientovi.
     """
 
-    # 🔥 FIX — lazy import to avoid circular dependency
+    # lazy import aby nevznikol circular
     from .utils import send_voip_push
 
     # Validate Clerk JWT
@@ -30,17 +30,17 @@ def start():
     if not caller or not advisor:
         frappe.throw("Missing callerId or advisorId")
 
-    # Create BC Call record
+    # Create new call record in 'BC Dennik hovorov'
     call = frappe.get_doc({
-        "doctype": "BC Call",
-        "caller": caller,
-        "advisor": advisor,
-        "status": "ringing",
-        "start_time": now_datetime()
+        "doctype": "BC Dennik hovorov",
+        "volajuci": caller,
+        "poradca": advisor,
+        "zaciatok": now_datetime(),
+        "stav": "ringing"
     })
     call.insert(ignore_permissions=True)
 
-    # Lookup advisor device
+    # Lookup target device (advisor side)
     advisor_user_ids = frappe.get_all(
         "BC Pouzivatel",
         filters={"clerk_id": advisor},
@@ -56,7 +56,7 @@ def start():
             limit_page_length=5,
         )
 
-    # Send VoIP push (if device exists)
+    # Send VoIP push
     if devices:
         dev = devices[0]
         token = dev.get("voip_token")
@@ -85,7 +85,7 @@ def start():
 # -----------------------------------------------------------------------------
 @frappe.whitelist(methods=["POST"], allow_guest=True)
 def accept():
-    """Klient prijme hovor po VoIP push."""
+    """Poradca/klient prijme hovor."""
     clerk_id, _ = verify_clerk_bearer_and_get_sub()
 
     data = frappe.local.form_dict or {}
@@ -94,13 +94,13 @@ def accept():
     if not call_id:
         frappe.throw("Missing callId")
 
-    doc = frappe.get_doc("BC Call", call_id)
+    doc = frappe.get_doc("BC Dennik hovorov", call_id)
 
-    if doc.advisor != clerk_id:
+    if doc.poradca != clerk_id:
         frappe.throw("You cannot accept someone else's call", frappe.PermissionError)
 
-    doc.status = "ongoing"
-    doc.answered_time = now_datetime()
+    doc.stav = "ongoing"
+    doc.odpoved = now_datetime()
     doc.save(ignore_permissions=True)
 
     return {"success": True, "callId": call_id, "status": "ongoing"}
@@ -108,7 +108,7 @@ def accept():
 # -----------------------------------------------------------------------------
 # END CALL
 # -----------------------------------------------------------------------------
-@frappe.whitelist(methods=["POST"], allow_guest=True)
+@frappe.whitelist(methods=["POST"], allow_guest=True])
 def end():
     """Ukončenie hovoru jednou zo strán."""
     clerk_id, _ = verify_clerk_bearer_and_get_sub()
@@ -119,10 +119,19 @@ def end():
     if not call_id:
         frappe.throw("Missing callId")
 
-    doc = frappe.get_doc("BC Call", call_id)
+    doc = frappe.get_doc("BC Dennik hovorov", call_id)
 
-    doc.status = "ended"
-    doc.end_time = now_datetime()
+    doc.stav = "ended"
+    doc.koniec = now_datetime()
+
+    # Calculate duration if possible
+    try:
+        if doc.zaciatok and doc.koniec:
+            delta = (doc.koniec - doc.zaciatok).total_seconds()
+            doc.trvanie = int(delta)
+    except Exception:
+        pass
+
     doc.save(ignore_permissions=True)
 
     return {"success": True, "callId": call_id, "status": "ended"}
@@ -139,10 +148,10 @@ def history(userId: str):
         frappe.throw("Forbidden", frappe.PermissionError)
 
     calls = frappe.get_all(
-        "BC Call",
-        filters={"caller": userId},
-        fields=["name", "advisor", "status", "start_time", "end_time"],
-        order_by="start_time desc",
+        "BC Dennik hovorov",
+        filters={"volajuci": userId},
+        fields=["name", "poradca", "stav", "zaciatok", "koniec", "trvanie"],
+        order_by="zaciatok desc",
     )
 
     return {"success": True, "calls": calls}
