@@ -146,6 +146,8 @@ def ensure_bc_user_by_clerk(clerk_id: str, email: str | None = None):
 
 _apns_cached_token = {"token": None, "iat": 0}
 
+import os
+
 def _build_apns_jwt():
     now = int(time.time())
 
@@ -154,15 +156,21 @@ def _build_apns_jwt():
 
     settings = get_settings()
 
+    # RELATÍVNA cesta z DocType
     key_file = settings.apn_key_file
+
+    # PREVEDIE NA ABSOLÚTNU CESTU
+    site_path = frappe.get_site_path()
+    full_path = os.path.join(site_path, key_file.lstrip("/"))
+
     key_id = settings.apn_key_id
     team_id = settings.apn_team_id
 
-    if not (key_file and key_id and team_id):
+    if not (full_path and key_id and team_id):
         frappe.throw("APNs config missing in Nastavenie", frappe.ValidationError)
 
     try:
-        with open(key_file, "rb") as f:
+        with open(full_path, "rb") as f:
             p8 = f.read()
     except Exception as e:
         frappe.throw(f"APNs key file error: {e}", frappe.ValidationError)
