@@ -58,13 +58,16 @@ def start():
         if token:
             try:
                 send_voip_push(
-                    token,
-                    {
-                        "callId": call.name,
-                        "title": "Prichádzajúci hovor",
-                        "body": "Volá druhá strana",
-                    }
-                )
+				    token,
+				    {
+				        "callId": call.name,
+				        "callerId": caller,             # ← NUTNÉ PRE CALLKIT
+				        "callerName": caller,           # ← voliteľné, ale odporúčané
+				        "title": "Prichádzajúci hovor",
+				        "body": "Volá druhá strana",
+				    }
+				)
+
             except Exception as e:
                 frappe.log_error(f"VoIP push failed: {e}", "BC VoIP Error")
 
