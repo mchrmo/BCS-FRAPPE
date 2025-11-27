@@ -34,18 +34,10 @@ def listings():
 
 @frappe.whitelist(methods=["GET"], allow_guest=True)
 def history(userId: str = None):
-    """
-    History of token transactions for a given user:
-    - purchase from treasury
-    - purchase from marketplace
-    - selling to marketplace
-    - trades between users
-    """
-
     if not userId:
         frappe.throw("Missing userId", frappe.ValidationError)
 
-    # Nájdeme BC Pouzivatela
+    # nájdi BC Pouzivatel
     user_doc = frappe.get_all(
         "BC Pouzivatel",
         filters={"clerk_id": userId},
@@ -57,50 +49,50 @@ def history(userId: str = None):
 
     bc_user = user_doc[0].name
 
-    # Všetky transakcie kde bol predávajúci alebo kupujúci
-    rows = frappe.get_all(
+    # 1) transakcie kde JE user predavajuci
+    sold = frappe.get_all(
         "BC Transakcia",
-        filters=[
-            ["predavajuci", "in", [bc_user]],
-            ["kupujuci", "in", [bc_user]]
-        ],
-        fields=[
-            "name",
-            "predavajuci",
-            "kupujuci",
-            "token",
-            "suma_eur",
-            "datum",
-        ],
+        filters={"predavajuci": bc_user},
+        fields=["name", "predavajuci", "kupujuci", "token", "suma_eur", "datum"],
         order_by="datum desc"
     )
+
+    # 2) transakcie kde JE user kupujuci
+    bought = frappe.get_all(
+        "BC Transakcia",
+        filters={"kupujuci": bc_user},
+        fields=["name", "predavajuci", "kupujuci", "token", "suma_eur", "datum"],
+        order_by="datum desc"
+    )
+
+    rows = sold + bought
 
     out = []
 
     for row in rows:
         token = frappe.get_doc("BC Token", row.token)
 
-        # urč typ transakcie
-        if row.predavajuci == bc_user and row.kupujuci:
-            direction = "sell"
-            type_ = "trade"
-        elif row.kupujuci == bc_user and row.predavajuci:
-            direction = "buy"
-            type_ = "trade"
+        # urč smer
+        if row.predavajuci == bc_user:
+            direction = "sell"    # user zarobil
+        elif row.kupujuci == bc_user:
+            direction = "buy"     # user minul
         else:
-            type_ = "purchase"
-            direction = "buy"
+            continue
 
         out.append({
             "id": row.name,
-            "type": type_,
+            "type": "trade",
             "direction": direction,
             "price": float(row.suma_eur or 0),
             "year": token.vydany_rok,
             "createdAt": row.datum,
         })
 
+    out = sorted(out, key=lambda x: x["createdAt"], reverse=True)
+
     return {"success": True, "items": out}
+
 
 @frappe.whitelist(methods=["POST"], allow_guest=False)
 def list_token(sellerId: str = None, tokenId: str = None, priceEur: float = None):
