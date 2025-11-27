@@ -94,25 +94,37 @@ def history(userId: str = None):
     return {"success": True, "items": out}
 
 
-@frappe.whitelist(methods=["POST"])
+import frappe
+from .utils import verify_clerk_bearer_and_get_sub
+
+@frappe.whitelist(methods=["POST"], allow_guest=True)
 def list_token(sellerId: str = None, tokenId: str = None, priceEur: float = None):
     """
-    Client lists a token for sale — creates BC Inzerat.
+    Client lists a token for sale.
+    Overí:
+    - Clerk JWT (X-Clerk-Authorization: Bearer <jwt>)
+    - že user listuje IBA svoj token
     """
 
-    data = frappe.form_dict
+    # 👇 Over Clerk JWT
+    clerk_id, payload = verify_clerk_bearer_and_get_sub()
 
-    sellerId = data.get("sellerId") or sellerId
-    tokenId = data.get("tokenId") or tokenId
-    priceEur = data.get("priceEur") or priceEur
+    # 👇 Presne ako pri balance()
+    sellerId = sellerId or frappe.form_dict.get("sellerId")
+    tokenId = tokenId or frappe.form_dict.get("tokenId")
+    priceEur = priceEur or frappe.form_dict.get("priceEur")
 
     if not sellerId or not tokenId or priceEur is None:
-        frappe.throw("Missing data for listing", frappe.ValidationError)
+        frappe.throw("Missing parameters", frappe.ValidationError)
 
-    # nájdi BC Pouzivatel podľa clerk_id
+    # 👇 User môže listovať iba SVOJE tokeny
+    if sellerId != clerk_id:
+        frappe.throw("Forbidden", frappe.PermissionError)
+
+    # 👇 Nájdi BC Pouzivatel podľa Clerk ID
     user_doc = frappe.get_all(
         "BC Pouzivatel",
-        filters={"clerk_id": sellerId},
+        filters={"clerk_id": clerk_id},
         limit=1
     )
 
@@ -121,18 +133,18 @@ def list_token(sellerId: str = None, tokenId: str = None, priceEur: float = None
 
     bc_user = user_doc[0].name
 
-    # načítaj token
+    # 👇 Nájdi token
     token = frappe.get_doc("BC Token", tokenId)
 
-    # token musí patriť userovi
+    # 👇 Token musí patriť užívateľovi
     if token.aktualny_drzitel != bc_user:
         frappe.throw("Token does not belong to this user", frappe.PermissionError)
 
-    # token musí byť aktívny
+    # 👇 Token musí byť aktívny
     if token.stav != "active":
         frappe.throw("Token is not active", frappe.ValidationError)
 
-    # vytvor nový inzerát
+    # 👇 Vytvor nový inzerát
     inz = frappe.get_doc({
         "doctype": "BC Inzerat",
         "predavajuci": bc_user,
@@ -142,14 +154,13 @@ def list_token(sellerId: str = None, tokenId: str = None, priceEur: float = None
     })
     inz.insert(ignore_permissions=True)
 
-    # zmeň stav tokenu
+    # 👇 Označ token ako listed
     token.stav = "listed"
     token.save(ignore_permissions=True)
 
     return {
-        "success": True,
         "listingId": inz.name,
         "tokenId": tokenId,
-        "priceEur": priceEur,
+        "priceEur": float(priceEur),
+        "success": True
     }
-
