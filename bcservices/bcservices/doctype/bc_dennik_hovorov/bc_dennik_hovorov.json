@@ -72,8 +72,4 @@
   "sort_field": "creation",
   "sort_order": "DESC",
   "states": []
-<<<<<<< HEAD
 }
-=======
-}
->>>>>>> 44fa969 (feat: integrate market listings and user balance with Frappe API)
