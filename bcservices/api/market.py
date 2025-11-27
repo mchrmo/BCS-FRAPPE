@@ -4,41 +4,30 @@ import frappe
 
 @frappe.whitelist(methods=["GET"], allow_guest=True)
 def listings():
-    """
-    Verejný endpoint pre frontend:
-    GET /api/method/bcservices.api.market.listings
-
-    Načíta všetky otvorené inzeráty z Doctype 'BC Inzerat'
-    a pripojí základné info o tokene.
-    """
-    items = frappe.get_all(
+    rows = frappe.get_all(
         "BC Inzerat",
         filters={"stav": "open"},
-        fields=[
-            "name as id",
-            "token",
-            "predavajuci as sellerId",
-            "cena_eur as priceEur",
-            "stav as status",
-            "creation as createdAt",
-        ],
         order_by="creation desc",
+        fields=["name", "token", "predavajuci", "cena_eur", "creation"]
     )
 
-    # doplnenie info o tokene
-    for item in items:
-        tok = frappe.get_value(
-            "BC Token",
-            item.token,
-            ["vydany_rok", "minuty_ostavajuce", "stav"],
-            as_dict=True,
-        )
-        if tok:
-            item["token"] = {
-                "id": item["token"],
+    out = []
+
+    for row in rows:
+        tok = frappe.get_doc("BC Token", row.token)
+
+        out.append({
+            "id": row.name,                        # ✔️ správny ID listing-u
+            "token": {
+                "id": tok.name,
                 "issuedYear": tok.vydany_rok,
                 "minutesRemaining": tok.minuty_ostavajuce,
-                "status": tok.stav,
-            }
+                "status": tok.stav
+            },
+            "sellerId": row.predavajuci,
+            "priceEur": float(row.cena_eur),
+            "status": "open",
+            "createdAt": row.creation
+        })
 
-    return {"success": True, "items": items}
+    return {"success": True, "items": out}
