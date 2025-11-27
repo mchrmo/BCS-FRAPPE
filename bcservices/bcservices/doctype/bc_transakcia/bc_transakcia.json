@@ -6,12 +6,12 @@
  "engine": "InnoDB",
  "field_order": [
   "section_break_o89k",
-  "amended_from",
-  "pouzivatel",
-  "typ",
+  "predavajuci",
+  "kupujuci",
+  "token",
   "suma_eur",
-  "zmena_sekund",
-  "poznamka"
+  "datum",
+  "amended_from"
  ],
  "fields": [
   {
@@ -29,38 +29,39 @@
    "search_index": 1
   },
   {
-   "fieldname": "pouzivatel",
-   "fieldtype": "Link",
-   "label": "Pou\u017e\u00edvate\u013e",
-   "options": "BC Pouzivatel"
-  },
-  {
-   "fieldname": "typ",
-   "fieldtype": "Select",
-   "label": "Typ",
-   "options": "friday_purchase\nfriday_trade_buy\nfriday_trade_sell"
-  },
-  {
    "fieldname": "suma_eur",
    "fieldtype": "Currency",
    "label": "Suma (EUR)"
   },
   {
-   "fieldname": "zmena_sekund",
-   "fieldtype": "Int",
-   "label": "Zmena sek\u00fand"
+   "fieldname": "predavajuci",
+   "fieldtype": "Link",
+   "label": "Pred\u00e1vaj\u00faci",
+   "options": "BC Pouzivatel"
   },
   {
-   "fieldname": "poznamka",
-   "fieldtype": "Small Text",
-   "label": "Pozn\u00e1mka"
+   "fieldname": "kupujuci",
+   "fieldtype": "Link",
+   "label": "Kupuj\u00faci",
+   "options": "BC Pouzivatel"
+  },
+  {
+   "fieldname": "token",
+   "fieldtype": "Link",
+   "label": "Token",
+   "options": "BC Token"
+  },
+  {
+   "fieldname": "datum",
+   "fieldtype": "Datetime",
+   "label": "D\u00e1tum"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2025-11-11 22:55:36.256531",
+ "modified": "2025-11-27 20:40:20.584634",
  "modified_by": "Administrator",
  "module": "BCServices",
  "name": "BC Transakcia",
