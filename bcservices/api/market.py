@@ -1,5 +1,3 @@
-# apps/bcservices/bcservices/api/market.py
-
 import frappe
 
 @frappe.whitelist(methods=["GET"], allow_guest=True)
@@ -17,7 +15,8 @@ def listings():
         tok = frappe.get_doc("BC Token", row.token)
 
         out.append({
-            "id": row.name,                        # ✔️ správny ID listing-u
+            "id": row.name,                  # ID inzerátu
+            "tokenId": tok.name,             # <-- TOTO MUSÍ BYŤ!
             "token": {
                 "id": tok.name,
                 "issuedYear": tok.vydany_rok,
