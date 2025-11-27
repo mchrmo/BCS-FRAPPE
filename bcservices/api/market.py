@@ -94,13 +94,12 @@ def history(userId: str = None):
     return {"success": True, "items": out}
 
 
-@frappe.whitelist(methods=["POST"], allow_guest=False)
+@frappe.whitelist(methods=["POST"])
 def list_token(sellerId: str = None, tokenId: str = None, priceEur: float = None):
     """
     Client lists a token for sale — creates BC Inzerat.
     """
 
-    # overíme JSON body
     data = frappe.form_dict
 
     sellerId = data.get("sellerId") or sellerId
@@ -110,7 +109,7 @@ def list_token(sellerId: str = None, tokenId: str = None, priceEur: float = None
     if not sellerId or not tokenId or priceEur is None:
         frappe.throw("Missing data for listing", frappe.ValidationError)
 
-    # najdi BC Pouzivatel podľa Clerk ID
+    # nájdi BC Pouzivatel podľa clerk_id
     user_doc = frappe.get_all(
         "BC Pouzivatel",
         filters={"clerk_id": sellerId},
@@ -125,7 +124,7 @@ def list_token(sellerId: str = None, tokenId: str = None, priceEur: float = None
     # načítaj token
     token = frappe.get_doc("BC Token", tokenId)
 
-    # token musí patriť používateľovi
+    # token musí patriť userovi
     if token.aktualny_drzitel != bc_user:
         frappe.throw("Token does not belong to this user", frappe.PermissionError)
 
@@ -143,7 +142,7 @@ def list_token(sellerId: str = None, tokenId: str = None, priceEur: float = None
     })
     inz.insert(ignore_permissions=True)
 
-    # označ token ako listed
+    # zmeň stav tokenu
     token.stav = "listed"
     token.save(ignore_permissions=True)
 
