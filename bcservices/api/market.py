@@ -101,3 +101,64 @@ def history(userId: str = None):
         })
 
     return {"success": True, "items": out}
+
+@frappe.whitelist(methods=["POST"], allow_guest=False)
+def list_token(sellerId: str = None, tokenId: str = None, priceEur: float = None):
+    """
+    Client lists a token for sale — creates BC Inzerat.
+    """
+
+    # overíme JSON body
+    data = frappe.form_dict
+
+    sellerId = data.get("sellerId") or sellerId
+    tokenId = data.get("tokenId") or tokenId
+    priceEur = data.get("priceEur") or priceEur
+
+    if not sellerId or not tokenId or priceEur is None:
+        frappe.throw("Missing data for listing", frappe.ValidationError)
+
+    # najdi BC Pouzivatel podľa Clerk ID
+    user_doc = frappe.get_all(
+        "BC Pouzivatel",
+        filters={"clerk_id": sellerId},
+        limit=1
+    )
+
+    if not user_doc:
+        frappe.throw("User not found", frappe.DoesNotExistError)
+
+    bc_user = user_doc[0].name
+
+    # načítaj token
+    token = frappe.get_doc("BC Token", tokenId)
+
+    # token musí patriť používateľovi
+    if token.aktualny_drzitel != bc_user:
+        frappe.throw("Token does not belong to this user", frappe.PermissionError)
+
+    # token musí byť aktívny
+    if token.stav != "active":
+        frappe.throw("Token is not active", frappe.ValidationError)
+
+    # vytvor nový inzerát
+    inz = frappe.get_doc({
+        "doctype": "BC Inzerat",
+        "predavajuci": bc_user,
+        "token": tokenId,
+        "cena_eur": priceEur,
+        "stav": "open"
+    })
+    inz.insert(ignore_permissions=True)
+
+    # označ token ako listed
+    token.stav = "listed"
+    token.save(ignore_permissions=True)
+
+    return {
+        "success": True,
+        "listingId": inz.name,
+        "tokenId": tokenId,
+        "priceEur": priceEur,
+    }
+
