@@ -83,11 +83,7 @@ def admin_mint():
 
     for _ in range(qty):
         doc = frappe.get_doc({
-<<<<<<< HEAD
-            "doctype": "BC Token",
-=======
             "doctype": "Token",
->>>>>>> cbb2b3e (Added naming rule + auto password + email sending for Pouzivatel)
             "minuty_ostavajuce": 60,
             "stav": "active",
             "povodna_cena_eur": price,
@@ -125,11 +121,7 @@ def admin_set_price():
 
     if reprice:
         treasury_tokens = frappe.get_all(
-<<<<<<< HEAD
-            "BC Token",
-=======
             "Token",
->>>>>>> cbb2b3e (Added naming rule + auto password + email sending for Pouzivatel)
             filters={
                 "stav": "active",
                 "aktualny_drzitel": ["is", "null"],
@@ -138,11 +130,7 @@ def admin_set_price():
         )
         for token_name in treasury_tokens:
             frappe.db.set_value(
-<<<<<<< HEAD
-                "BC Token", token_name,
-=======
                 "Token", token_name,
->>>>>>> cbb2b3e (Added naming rule + auto password + email sending for Pouzivatel)
                 "povodna_cena_eur", new_price
             )
         updated = treasury_tokens
@@ -152,8 +140,4 @@ def admin_set_price():
         "priceEur": new_price,
         "updatedCount": len(updated),
         "updatedTokens": updated
-<<<<<<< HEAD
     }
-=======
-    }
->>>>>>> cbb2b3e (Added naming rule + auto password + email sending for Pouzivatel)
