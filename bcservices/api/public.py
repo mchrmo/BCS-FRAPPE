@@ -21,7 +21,7 @@ def supply(year: int = None):
 
     # Treasury (voľné tokeny)
     treasury_tokens = frappe.get_all(
-        "BC Token",
+        "Token",
         filters={
             "aktualny_drzitel": ["is", "null"],
             "stav": "active",
@@ -32,7 +32,7 @@ def supply(year: int = None):
 
     # Total minted (všetky tokeny pre daný rok)
     minted = frappe.db.count(
-        "BC Token",
+        "Token",
         {
             "vydany_rok": y,
         }
@@ -40,7 +40,7 @@ def supply(year: int = None):
 
     # Total sold (tokeny, ktoré už majú držiteľa)
     sold = frappe.db.count(
-        "BC Token",
+        "Token",
         {
             "vydany_rok": y,
             "aktualny_drzitel": ["is", "set"],

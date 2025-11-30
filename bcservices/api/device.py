@@ -13,8 +13,8 @@ def register_device():
     Register iOS VoIP token for push notifications.
     TOTO JE SPRÁVNA VERZIA PRE TVOJU APLIKÁCIU.
     - Overí Clerk JWT
-    - Nájde BC Pouzivatel podľa clerk_id
-    - Uloží alebo aktualizuje záznam v child table 'BC Zariadenie'
+    - Nájde Pouzivatel podľa clerk_id
+    - Uloží alebo aktualizuje záznam v child table 'Zariadenie'
     """
     
     clerk_id, payload = verify_clerk_bearer_and_get_sub()

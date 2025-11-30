@@ -3,7 +3,7 @@ import frappe
 @frappe.whitelist(methods=["GET"], allow_guest=True)
 def listings():
     rows = frappe.get_all(
-        "BC Inzerat",
+        "Inzerat",
         filters={"stav": "open"},
         order_by="creation desc",
         fields=["name", "token", "predavajuci", "cena_eur", "creation"]
@@ -12,7 +12,7 @@ def listings():
     out = []
 
     for row in rows:
-        tok = frappe.get_doc("BC Token", row.token)
+        tok = frappe.get_doc("Token", row.token)
 
         out.append({
             "id": row.name,                  # ID inzerátu
@@ -39,7 +39,7 @@ def history(userId: str = None):
 
     # nájdi BC Pouzivatel
     user_doc = frappe.get_all(
-        "BC Pouzivatel",
+        "Pouzivatel",
         filters={"clerk_id": userId},
         limit=1
     )
@@ -59,7 +59,7 @@ def history(userId: str = None):
 
     # 2) transakcie kde JE user kupujuci
     bought = frappe.get_all(
-        "BC Transakcia",
+        "Transakcia",
         filters={"kupujuci": bc_user},
         fields=["name", "predavajuci", "kupujuci", "token", "suma_eur", "datum"],
         order_by="datum desc"
@@ -70,7 +70,7 @@ def history(userId: str = None):
     out = []
 
     for row in rows:
-        token = frappe.get_doc("BC Token", row.token)
+        token = frappe.get_doc("Token", row.token)
 
         # urč smer
         if row.predavajuci == bc_user:
@@ -123,7 +123,7 @@ def list_token(sellerId: str = None, tokenId: str = None, priceEur: float = None
 
     # 👇 Nájdi BC Pouzivatel podľa Clerk ID
     user_doc = frappe.get_all(
-        "BC Pouzivatel",
+        "Pouzivatel",
         filters={"clerk_id": clerk_id},
         limit=1
     )
@@ -134,7 +134,7 @@ def list_token(sellerId: str = None, tokenId: str = None, priceEur: float = None
     bc_user = user_doc[0].name
 
     # 👇 Nájdi token
-    token = frappe.get_doc("BC Token", tokenId)
+    token = frappe.get_doc("Token", tokenId)
 
     # 👇 Token musí patriť užívateľovi
     if token.aktualny_drzitel != bc_user:
@@ -146,7 +146,7 @@ def list_token(sellerId: str = None, tokenId: str = None, priceEur: float = None
 
     # 👇 Vytvor nový inzerát
     inz = frappe.get_doc({
-        "doctype": "BC Inzerat",
+        "doctype": "Inzerat",
         "predavajuci": bc_user,
         "token": tokenId,
         "cena_eur": priceEur,

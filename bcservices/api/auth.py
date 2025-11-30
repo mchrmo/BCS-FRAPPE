@@ -27,7 +27,7 @@ def sync_user():
     Authorization: X-Clerk-Authorization: Bearer <jwt>
 
     - Overí Clerk JWT
-    - Nájde alebo vytvorí BC Pouzivatel
+    - Nájde alebo vytvorí Pouzivatel
     - Zabezpečí, že public_metadata.role == "client"
     """
     clerk_id, payload = verify_clerk_bearer_and_get_sub()
@@ -181,7 +181,7 @@ def after_insert_bc_pouzivatel(doc, method=None):
     try:
         pw = None
         try:
-            pw = get_decrypted_password("BC Pouzivatel", doc.name, "heslo")
+            pw = get_decrypted_password("Pouzivatel", doc.name, "heslo")
         except Exception:
             pass
 
@@ -193,10 +193,10 @@ def after_insert_bc_pouzivatel(doc, method=None):
 
         cid = res.get("id")
         if cid:
-            frappe.db.set_value("BC Pouzivatel", doc.name, "clerk_id", cid)
+            frappe.db.set_value("Pouzivatel", doc.name, "clerk_id", cid)
 
         if res.get("username") and hasattr(doc, "username"):
-            frappe.db.set_value("BC Pouzivatel", doc.name, "username", res["username"])
+            frappe.db.set_value("Pouzivatel", doc.name, "username", res["username"])
 
     except Exception as e:
         frappe.log_error(f"Clerk create failed: {e}", "BC Clerk Sync")
@@ -209,7 +209,7 @@ def on_update_bc_pouzivatel(doc, method=None):
     try:
         pw = None
         try:
-            pw = get_decrypted_password("BC Pouzivatel", doc.name, "heslo")
+            pw = get_decrypted_password("Pouzivatel", doc.name, "heslo")
         except Exception:
             pass
 

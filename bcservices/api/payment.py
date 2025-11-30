@@ -52,7 +52,7 @@ def checkout_treasury(userId: str = None, quantity: int = None, year: int = None
     max_per_year = int(settings.max_primary_tokens_per_user or 20)
 
     owned = frappe.db.count(
-        "BC Token",
+        "Token",
         {
             "aktualny_drzitel": user.name,
             "vydany_rok": year,
@@ -68,7 +68,7 @@ def checkout_treasury(userId: str = None, quantity: int = None, year: int = None
 
     # Treasury availability
     available = frappe.db.count(
-        "BC Token",
+        "Token",
         {
             "aktualny_drzitel": ["is", "null"],
             "vydany_rok": year,
@@ -84,7 +84,7 @@ def checkout_treasury(userId: str = None, quantity: int = None, year: int = None
     # Create BC Payment record
     p = frappe.get_doc(
         {
-            "doctype": "BC Platba",
+            "doctype": "Platba",
             "kupujuci": user.name,
             "typ": "treasury",
             "mnozstvo": quantity,
@@ -122,7 +122,7 @@ def checkout_treasury(userId: str = None, quantity: int = None, year: int = None
         },
     )
 
-    frappe.db.set_value("BC Platba", p.name, "stripe_session_id", session["id"])
+    frappe.db.set_value("Platba", p.name, "stripe_session_id", session["id"])
 
     return {"url": session["url"]}
 
@@ -145,7 +145,7 @@ def checkout_listing(buyerId: str = None, listingId: str = None):
         frappe.throw("Missing buyerId/listingId", frappe.ValidationError)
 
     buyer = ensure_bc_user_by_clerk(buyerId)
-    lst = frappe.get_doc("BC Inzerat", listingId)
+    lst = frappe.get_doc("Inzerat", listingId)
 
     if lst.stav != "open":
         frappe.throw("Listing not available", frappe.ValidationError)
@@ -157,7 +157,7 @@ def checkout_listing(buyerId: str = None, listingId: str = None):
 
     p = frappe.get_doc(
         {
-            "doctype": "BC Platba",
+            "doctype": "Platba",
             "kupujuci": buyer.name,
             "typ": "listing",
             "inzerat": lst.name,
@@ -194,7 +194,7 @@ def checkout_listing(buyerId: str = None, listingId: str = None):
         },
     )
 
-    frappe.db.set_value("BC Platba", p.name, "stripe_session_id", session["id"])
+    frappe.db.set_value("Platba", p.name, "stripe_session_id", session["id"])
 
     return {"url": session["url"]}
 
@@ -234,7 +234,7 @@ def stripe_webhook():
 
         if payment_id:
             frappe.db.set_value(
-                "BC Platba",
+                "Platba",
                 payment_id,
                 {
                     "stav": "paid",
@@ -265,7 +265,7 @@ def stripe_webhook():
         session = event["data"]["object"]
         payment_id = (session.get("metadata") or {}).get("paymentId")
         if payment_id:
-            frappe.db.set_value("BC Platba", payment_id, "stav", "failed")
+            frappe.db.set_value("Platba", payment_id, "stav", "failed")
 
     return {"received": True}
 
@@ -279,7 +279,7 @@ def _fulfill_treasury(buyer_clerk_id: str, quantity: int, year: int):
     user = ensure_bc_user_by_clerk(buyer_clerk_id)
 
     tokens = frappe.get_all(
-        "BC Token",
+        "Token",
         filters={
             "aktualny_drzitel": ["is", "null"],
             "vydany_rok": year,
@@ -297,7 +297,7 @@ def _fulfill_treasury(buyer_clerk_id: str, quantity: int, year: int):
 
     # Assign tokens
     for token_name in names:
-        frappe.db.set_value("BC Token", token_name, "aktualny_drzitel", user.name)
+        frappe.db.set_value("Token", token_name, "aktualny_drzitel", user.name)
 
     # Create purchase items
     settings = get_settings()
@@ -307,7 +307,7 @@ def _fulfill_treasury(buyer_clerk_id: str, quantity: int, year: int):
         try:
             item = frappe.get_doc(
                 {
-                    "doctype": "BC Polozka Nakupu",
+                    "doctype": "Polozka Nakupu",
                     "token": token_name,
                     "jednotkova_cena_eur": unit_price,
                     "rok": year,
@@ -321,19 +321,19 @@ def _fulfill_treasury(buyer_clerk_id: str, quantity: int, year: int):
 def _fulfill_listing(buyer_clerk_id: str, listing_id: str):
     """Finalize marketplace listing purchase."""
     buyer = ensure_bc_user_by_clerk(buyer_clerk_id)
-    lst = frappe.get_doc("BC Inzerat", listing_id)
+    lst = frappe.get_doc("Inzerat", listing_id)
 
     if lst.stav != "open":
         frappe.throw("Listing not open", frappe.ValidationError)
 
     # Lock listing
     frappe.db.set_value(
-        "BC Inzerat",
+        "Inzerat",
         lst.name,
         {"stav": "sold", "uzavrete_kedy": now_datetime()}
     )
 
-    tok = frappe.get_doc("BC Token", lst.token)
+    tok = frappe.get_doc("Token", lst.token)
 
     if not (
         tok.aktualny_drzitel == lst.predavajuci
@@ -344,7 +344,7 @@ def _fulfill_listing(buyer_clerk_id: str, listing_id: str):
 
     # Transfer token
     frappe.db.set_value(
-        "BC Token",
+        "Token",
         tok.name,
         {"aktualny_drzitel": buyer.name, "stav": "active"}
     )
@@ -352,7 +352,7 @@ def _fulfill_listing(buyer_clerk_id: str, listing_id: str):
     # Create trade record
     trade = frappe.get_doc(
         {
-            "doctype": "BC Obchod",
+            "doctype": "Obchod",
             "inzerat": lst.name,
             "token": tok.name,
             "predavajuci": lst.predavajuci,
@@ -369,7 +369,7 @@ def _fulfill_listing(buyer_clerk_id: str, listing_id: str):
     ]:
         tx = frappe.get_doc(
             {
-                "doctype": "BC Transakcia",
+                "doctype": "Transakcia",
                 "pouzivatel": u,
                 "typ": typ,
                 "suma_eur": lst.cena_eur,

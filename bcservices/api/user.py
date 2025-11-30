@@ -33,7 +33,7 @@ def balance(userId: str = None):
 
     # 👇 nájdi minúty z tokenov
     tokens = frappe.get_all(
-        "BC Token",
+        "Token",
         filters={
             "aktualny_drzitel": user_doc.name,
             "stav": "active"

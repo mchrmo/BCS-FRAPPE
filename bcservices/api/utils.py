@@ -107,14 +107,14 @@ def clerk_api(path, method="GET", json_body=None):
 # ---------------------------------------------------
 
 def ensure_bc_user_by_clerk(clerk_id: str, email: str | None = None):
-    """Upsert BC Pouzivatel by clerk_id."""
-    name = frappe.db.get_value("BC Pouzivatel", {"clerk_id": clerk_id}, "name")
+    """Upsert Pouzivatel by clerk_id."""
+    name = frappe.db.get_value("Pouzivatel", {"clerk_id": clerk_id}, "name")
 
     if name:
-        doc = frappe.get_doc("BC Pouzivatel", name)
+        doc = frappe.get_doc("Pouzivatel", name)
 
         if email and not doc.email:
-            frappe.db.set_value("BC Pouzivatel", name, "email", email)
+            frappe.db.set_value("Pouzivatel", name, "email", email)
 
         return doc
 
@@ -132,7 +132,7 @@ def ensure_bc_user_by_clerk(clerk_id: str, email: str | None = None):
             pass
 
     doc = frappe.get_doc({
-        "doctype": "BC Pouzivatel",
+        "doctype": "Pouzivatel",
         "clerk_id": clerk_id,
         "email": email
     })
@@ -231,13 +231,13 @@ def upsert_child_device_for_user(user_doc, voip_token=None, apns_token=None):
     # remove duplicates
     if voip_token:
         rows = frappe.get_all(
-            "BC Zariadenie",
+            "Zariadenie",
             filters={"voip_token": voip_token},
             fields=["name", "parent"]
         )
         for r in rows:
             if r["parent"] != user_doc.name:
-                frappe.db.delete("BC Zariadenie", {"name": r["name"]})
+                frappe.db.delete("Zariadenie", {"name": r["name"]})
 
     # find existing
     found = None
@@ -259,7 +259,7 @@ def upsert_child_device_for_user(user_doc, voip_token=None, apns_token=None):
 
     else:
         user_doc.append("zariadenie", {
-            "doctype": "BC Zariadenie",
+            "doctype": "Zariadenie",
             "voip_token": voip_token,
             "apns_token": apns_token
         })

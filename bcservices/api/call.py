@@ -29,7 +29,7 @@ def start():
 
     # 🔥 Vytvorenie záznamu (Doctype nemá pole 'stav')
     call = frappe.get_doc({
-        "doctype": "BC Dennik hovorov",
+        "doctype": "Dennik hovorov",
         "volajuci": caller,
         "poradca": advisor,
         "zaciatok": now_datetime()
@@ -38,7 +38,7 @@ def start():
 
     # 🔥 Nájsť device poradcu
     advisor_user_ids = frappe.get_all(
-        "BC Pouzivatel",
+        "Pouzivatel",
         filters={"clerk_id": advisor},
         pluck="name"
     )
@@ -46,7 +46,7 @@ def start():
     devices = []
     if advisor_user_ids:
         devices = frappe.get_all(
-            "BC Zariadenie",
+            "Zariadenie",
             filters={"parent": ["in", advisor_user_ids]},
             fields=["voip_token"],
             limit_page_length=5,
@@ -88,7 +88,7 @@ def accept():
     if not call_id:
         frappe.throw("Missing callId")
 
-    doc = frappe.get_doc("BC Dennik hovorov", call_id)
+    doc = frappe.get_doc("Dennik hovorov", call_id)
 
     if doc.poradca != clerk_id:
         frappe.throw("You cannot accept someone else's call", frappe.PermissionError)
@@ -110,7 +110,7 @@ def end():
     if not call_id:
         frappe.throw("Missing callId")
 
-    doc = frappe.get_doc("BC Dennik hovorov", call_id)
+    doc = frappe.get_doc("Dennik hovorov", call_id)
 
     doc.koniec = now_datetime()
 
@@ -137,7 +137,7 @@ def history(userId: str):
         frappe.throw("Forbidden", frappe.PermissionError)
 
     calls = frappe.get_all(
-        "BC Dennik hovorov",
+        "Dennik hovorov",
         filters={"volajuci": userId},
         fields=["name", "poradca", "zaciatok", "koniec", "trvanie_s"],
         order_by="zaciatok desc",
