@@ -13,9 +13,9 @@ IGNORE_TEST_RECORD_DEPENDENCIES = []  # eg. ["User"]
 
 
 
-class IntegrationTestPouzivatel(IntegrationTestCase):
+class IntegrationTestKlient(IntegrationTestCase):
 	"""
-	Integration tests for Pouzivatel.
+	Integration tests for Klient.
 	Use this class for testing interactions between multiple components.
 	"""
 

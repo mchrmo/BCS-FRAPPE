@@ -18,13 +18,13 @@
    "fieldname": "volajuci",
    "fieldtype": "Link",
    "label": "Volaj\u00faci",
-   "options": "Pouzivatel"
+   "options": "Klient"
   },
   {
    "fieldname": "poradca",
    "fieldtype": "Link",
    "label": "Poradca",
-   "options": "Pouzivatel"
+   "options": "Klient"
   },
   {
    "fieldname": "zaciatok",
@@ -51,7 +51,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-11-30 15:14:39.325023",
+ "modified": "2025-11-30 16:07:28.718894",
  "modified_by": "Administrator",
  "module": "BCServices",
  "name": "Dennik hovorov",

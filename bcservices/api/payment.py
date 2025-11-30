@@ -370,7 +370,7 @@ def _fulfill_listing(buyer_clerk_id: str, listing_id: str):
         tx = frappe.get_doc(
             {
                 "doctype": "Transakcia",
-                "pouzivatel": u,
+                "Klient": u,
                 "typ": typ,
                 "suma_eur": lst.cena_eur,
                 "zmena_sekund": 0,

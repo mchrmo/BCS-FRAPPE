@@ -35,7 +35,7 @@
    "fieldname": "kupujuci",
    "fieldtype": "Link",
    "label": "Kupuj\u00faci ",
-   "options": "Pouzivatel"
+   "options": "Klient"
   },
   {
    "fieldname": "inzerat",
@@ -73,7 +73,7 @@
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2025-11-30 15:14:54.719498",
+ "modified": "2025-11-30 16:07:28.407876",
  "modified_by": "Administrator",
  "module": "BCServices",
  "name": "Platba",

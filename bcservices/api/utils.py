@@ -107,14 +107,14 @@ def clerk_api(path, method="GET", json_body=None):
 # ---------------------------------------------------
 
 def ensure_bc_user_by_clerk(clerk_id: str, email: str | None = None):
-    """Upsert Pouzivatel by clerk_id."""
-    name = frappe.db.get_value("Pouzivatel", {"clerk_id": clerk_id}, "name")
+    """Upsert Klient by clerk_id."""
+    name = frappe.db.get_value("Klient", {"clerk_id": clerk_id}, "name")
 
     if name:
-        doc = frappe.get_doc("Pouzivatel", name)
+        doc = frappe.get_doc("Klient", name)
 
         if email and not doc.email:
-            frappe.db.set_value("Pouzivatel", name, "email", email)
+            frappe.db.set_value("Klient", name, "email", email)
 
         return doc
 
@@ -132,7 +132,7 @@ def ensure_bc_user_by_clerk(clerk_id: str, email: str | None = None):
             pass
 
     doc = frappe.get_doc({
-        "doctype": "Pouzivatel",
+        "doctype": "Klient",
         "clerk_id": clerk_id,
         "email": email
     })

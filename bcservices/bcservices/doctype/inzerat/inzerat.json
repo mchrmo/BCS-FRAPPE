@@ -23,7 +23,7 @@
    "fieldname": "predavajuci",
    "fieldtype": "Link",
    "label": "Pred\u00e1vaj\u00faci",
-   "options": "Pouzivatel"
+   "options": "Klient"
   },
   {
    "fieldname": "cena_eur",
@@ -46,7 +46,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-11-30 15:15:11.645268",
+ "modified": "2025-11-30 16:07:27.780095",
  "modified_by": "Administrator",
  "module": "BCServices",
  "name": "Inzerat",

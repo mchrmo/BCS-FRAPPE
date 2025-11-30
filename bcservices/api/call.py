@@ -38,7 +38,7 @@ def start():
 
     # 🔥 Nájsť device poradcu
     advisor_user_ids = frappe.get_all(
-        "Pouzivatel",
+        "Klient",
         filters={"clerk_id": advisor},
         pluck="name"
     )

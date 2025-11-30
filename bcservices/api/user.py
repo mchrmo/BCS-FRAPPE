@@ -28,7 +28,7 @@ def balance(userId: str = None):
     if userId != clerk_id:
         frappe.throw("Forbidden", frappe.PermissionError)
 
-    # 👇 nájdi / vytvor BC Pouzivatel
+    # 👇 nájdi / vytvor Klient
     user_doc = ensure_bc_user_by_clerk(clerk_id)
 
     # 👇 nájdi minúty z tokenov

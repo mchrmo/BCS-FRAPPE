@@ -13,7 +13,7 @@ def register_device():
     Register iOS VoIP token for push notifications.
     TOTO JE SPRÁVNA VERZIA PRE TVOJU APLIKÁCIU.
     - Overí Clerk JWT
-    - Nájde Pouzivatel podľa clerk_id
+    - Nájde Klient podľa clerk_id
     - Uloží alebo aktualizuje záznam v child table 'Zariadenie'
     """
     
@@ -27,7 +27,7 @@ def register_device():
     if not voip_token:
         frappe.throw("Missing voip_token")
 
-    # nájdi alebo vytvor BC Pouzivatel podľa Clerk ID
+    # nájdi alebo vytvor Klient podľa Clerk ID
     user_doc = ensure_bc_user_by_clerk(clerk_id)
 
     # upsert zariadenia – zabezpečí:

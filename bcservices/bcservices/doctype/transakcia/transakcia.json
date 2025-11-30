@@ -38,13 +38,13 @@
    "fieldname": "predavajuci",
    "fieldtype": "Link",
    "label": "Pred\u00e1vaj\u00faci",
-   "options": "Pouzivatel"
+   "options": "Klient"
   },
   {
    "fieldname": "kupujuci",
    "fieldtype": "Link",
    "label": "Kupuj\u00faci",
-   "options": "Pouzivatel"
+   "options": "Klient"
   },
   {
    "fieldname": "token",
@@ -62,7 +62,7 @@
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2025-11-30 15:15:03.946484",
+ "modified": "2025-11-30 16:07:28.087292",
  "modified_by": "Administrator",
  "module": "BCServices",
  "name": "Transakcia",

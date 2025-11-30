@@ -23,7 +23,7 @@ def list_clients():
     _require_admin()
 
     users = frappe.get_all(
-        "Pouzivatel",
+        "Klient",
         fields=["name", "clerk_id", "email"]
     )
 

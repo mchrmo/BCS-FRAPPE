@@ -37,9 +37,9 @@ def history(userId: str = None):
     if not userId:
         frappe.throw("Missing userId", frappe.ValidationError)
 
-    # nájdi BC Pouzivatel
+    # nájdi Klient
     user_doc = frappe.get_all(
-        "Pouzivatel",
+        "Klient",
         filters={"clerk_id": userId},
         limit=1
     )
@@ -121,9 +121,9 @@ def list_token(sellerId: str = None, tokenId: str = None, priceEur: float = None
     if sellerId != clerk_id:
         frappe.throw("Forbidden", frappe.PermissionError)
 
-    # 👇 Nájdi BC Pouzivatel podľa Clerk ID
+    # 👇 Nájdi Klient podľa Clerk ID
     user_doc = frappe.get_all(
-        "Pouzivatel",
+        "Klient",
         filters={"clerk_id": clerk_id},
         limit=1
     )
