@@ -14,7 +14,7 @@ app_license = "unlicense"
 
 doc_events = {
     # Keď admin vytvorí BC Pouzivatel vo Frappe, založíme aj usera v Clerku a dáme mu role=client
-    "Pouzivatel": {
+    "Klient": {
         "after_insert": "bcservices.api.auth.after_insert_bc_pouzivatel",
         "on_update": "bcservices.api.auth.on_update_bc_pouzivatel"
     }
