@@ -179,11 +179,7 @@ def after_insert_bc_pouzivatel(doc, method=None):
         return
 
     try:
-        pw = None
-        try:
-            pw = get_decrypted_password("Klient", doc.name, "heslo")
-        except Exception:
-            pass
+        pw = doc.heslo   # <-- FIX
 
         res = _create_clerk_user(
             email=doc.email,
@@ -202,16 +198,13 @@ def after_insert_bc_pouzivatel(doc, method=None):
         frappe.log_error(f"Clerk create failed: {e}", "BC Clerk Sync")
 
 
+
 def on_update_bc_pouzivatel(doc, method=None):
     if not getattr(doc, "clerk_id", None):
         return
 
     try:
-        pw = None
-        try:
-            pw = get_decrypted_password("Klient", doc.name, "heslo")
-        except Exception:
-            pass
+        pw = doc.heslo   # <-- FIX
 
         _patch_clerk_user(
             clerk_id=doc.clerk_id,
