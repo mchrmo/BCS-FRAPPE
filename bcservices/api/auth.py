@@ -27,32 +27,42 @@ def sync_user():
     Authorization: X-Clerk-Authorization: Bearer <jwt>
 
     - Overí Clerk JWT
-    - Nájde alebo vytvorí Klient
-    - Zabezpečí, že public_metadata.role == "client"
+    - Nájde alebo vytvorí BC klienta
+    - Uistí sa, že role je 'client' IBA ak žiadna rola nie je definovaná
     """
+
     clerk_id, payload = verify_clerk_bearer_and_get_sub()
 
     # Create or update BC user record
     doc = ensure_bc_user_by_clerk(clerk_id)
 
-    # Sync role (=client) back to Clerk
+    # Sync role back to Clerk – ale len ak ju ešte nemá
     try:
         u = clerk_api(f"/v1/users/{clerk_id}")
         pub = (u.get("public_metadata") or {})
 
-        if pub.get("role") != "client":
+        existing_role = pub.get("role")
+
+        # -------------------------
+        # 🔥 KĽÚČOVÁ PODMIENKA
+        # -------------------------
+        if not existing_role:
+            # Žiadna rola? Nastavujeme default
             pub["role"] = "client"
+
             clerk_api(
                 f"/v1/users/{clerk_id}",
                 method="PATCH",
                 json_body={"public_metadata": pub}
             )
 
+        # Ak už má rolu (napr. admin), NIČ NEMENÍME.
+        # Tým pádom admin zostane admin.
+
     except Exception as e:
         frappe.log_error(f"Clerk role sync failed: {e}", "BC Clerk Sync")
 
     return {"success": True, "userId": clerk_id}
-
 
 # -----------------------------------------------------------------------------
 # SSO – redirect flow
