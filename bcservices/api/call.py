@@ -87,21 +87,21 @@ def start():
         try:
             # 🔥 Získaj username volajúceho (z Doctype Klient)
             caller_username = frappe.db.get_value(
-                "Klient",
-                {"clerk_id": caller_clerk},
-                "meno"
-            )
-
-            send_voip_push(
-                token,
-                {
-                    "callId": call.name,
-                    "callerId": caller_clerk,
-                    "callerName": caller_username or caller_clerk,
-                    "title": "Prichádzajúci hovor",
-                    "body": f"Volá {caller_username or caller_clerk}",
-                }
-            )
+			    "Klient",
+			    {"clerk_id": caller_clerk},
+			    "username"
+			)
+			
+			send_voip_push(
+			    token,
+			    {
+			        "callId": call.name,
+			        "callerId": caller_clerk,
+			        "callerName": caller_username or caller_clerk,
+			        "title": "Prichádzajúci hovor",
+			        "body": f"Volá {caller_username or caller_clerk}",
+			    }
+			)
 
         except Exception as e:
             frappe.log_error(
