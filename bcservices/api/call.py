@@ -30,11 +30,11 @@ def start():
     if not caller_clerk or not advisor_clerk:
         frappe.throw("Missing callerId or advisorId")
 
-    # Ak iOS posiela "admin", premapujeme ho na skutočný advisor clerk_id
+    # 🔥 iOS posiela "admin"? Prevedieme na reálny Clerk ID admina
     if advisor_clerk == "admin":
         advisor_clerk = "user_30p94nuw9O2UHOEsXmDhV2SgP8N"
 
-    # 🔍 Lookup Klient.name
+    # 🔍 Získaj Klient.name (primárny key)
     caller_name = get_klient_name_from_clerk(caller_clerk)
     advisor_name = get_klient_name_from_clerk(advisor_clerk)
 
@@ -44,7 +44,7 @@ def start():
     if not advisor_name:
         frappe.throw(f"Could not find advisor in Klient: {advisor_clerk}", frappe.LinkValidationError)
 
-    # 🔥 Vytvoriť záznam
+    # 🔥 Vytvor nový záznam hovoru
     now = now_datetime()
     call = frappe.get_doc({
         "doctype": "Dennik hovorov",
@@ -55,31 +55,37 @@ def start():
     })
     call.insert(ignore_permissions=True)
 
-    # 🔍 Nájsť device token poradcu
+    # -------------------------------------------------------------------
+    # FIND DEVICES OF ADVISOR (multi-device support)
+    # -------------------------------------------------------------------
     devices = frappe.get_all(
         "Zariadenie",
         filters={"parent": advisor_name},
         fields=["voip_token"],
-        limit_page_length=5
+        limit_page_length=20,
     )
 
-    # 🔔 Poslať VoIP push
-    if devices:
-        token = devices[0].get("voip_token")
-        if token:
-            try:
-                send_voip_push(
-                    token,
-                    {
-                        "callId": call.name,
-                        "callerId": caller_clerk,
-                        "callerName": caller_clerk,
-                        "title": "Prichádzajúci hovor",
-                        "body": "Volá druhá strana",
-                    }
-                )
-            except Exception as e:
-                frappe.log_error(f"VoIP push failed: {e}", "BC VoIP Error")
+    # -------------------------------------------------------------------
+    # SEND VoIP PUSH TO **ALL** DEVICES
+    # -------------------------------------------------------------------
+    for d in devices:
+        token = d.get("voip_token")
+        if not token:
+            continue
+
+        try:
+            send_voip_push(
+                token,
+                {
+                    "callId": call.name,
+                    "callerId": caller_clerk,
+                    "callerName": caller_clerk,
+                    "title": "Prichádzajúci hovor",
+                    "body": "Volá druhá strana",
+                }
+            )
+        except Exception as e:
+            frappe.log_error(f"VoIP push failed for device {token}: {e}", "BC VoIP Error")
 
     return {"success": True, "callId": call.name}
 
@@ -98,13 +104,12 @@ def accept():
 
     doc = frappe.get_doc("Dennik hovorov", call_id)
 
-    # Musíme overiť, či tento užívateľ je poradca
     advisor_name = get_klient_name_from_clerk(clerk_id)
 
     if doc.poradca != advisor_name:
         frappe.throw("You cannot accept someone else's call", frappe.PermissionError)
 
-    # Pri accept v tomto doctype nič nemeníme
+    # Pri accept nič nemeníme, len validujeme
     doc.save(ignore_permissions=True)
 
     return {"success": True, "callId": call_id}
@@ -125,11 +130,11 @@ def end():
     doc = frappe.get_doc("Dennik hovorov", call_id)
     now = now_datetime()
 
-    # 🔥 Uložiť koniec
+    # 🔥 Ulož ukončenie hovoru
     doc.koniec_datum = now.date()
     doc.koniec_cas = now.time().strftime("%H:%M:%S")
 
-    # 🔥 Vypočítať trvanie
+    # 🔥 Výpočet trvania
     try:
         start_dt = datetime.combine(
             doc.zaciatok_datum,
@@ -140,7 +145,6 @@ def end():
             datetime.strptime(doc.koniec_cas, "%H:%M:%S").time()
         )
         doc.trvanie_s = int((end_dt - start_dt).total_seconds())
-
     except Exception as e:
         frappe.log_error(f"Duration calc error: {e}", "BC Call Duration Error")
 
