@@ -107,24 +107,9 @@ def clerk_api(path, method="GET", json_body=None):
 # ---------------------------------------------------
 
 def ensure_bc_user_by_clerk(clerk_id: str, email: str | None = None):
-    """Upsert Klient by clerk_id, skip admin users."""
+    """Upsert Klient by clerk_id."""
 
-    # --- 1. Fetch Clerk user info ---
-    try:
-        clerk_user = clerk_api(f"/v1/users/{clerk_id}")
-    except Exception:
-        clerk_user = {}
-
-    # --- 2. Skip admins (never create Klient for them) ---
-    role = clerk_user.get("public_metadata", {}).get("role")
-    if role == "admin":
-        return frappe._dict({
-            "doctype": "Klient",
-            "name": clerk_id,
-            "zariadenie": []
-        })
-
-    # --- 3. Existing Klient? ---
+    # 1) Ak už existuje, len ho načítaj
     name = frappe.db.get_value("Klient", {"clerk_id": clerk_id}, "name")
 
     if name:
@@ -135,8 +120,15 @@ def ensure_bc_user_by_clerk(clerk_id: str, email: str | None = None):
 
         return doc
 
-    # --- 4. Create new Klient ---
-    if not email:
+    # 2) Ak neexistuje, stáhneme info z Clerk
+    clerk_user = None
+    try:
+        clerk_user = clerk_api(f"/v1/users/{clerk_id}")
+    except Exception:
+        clerk_user = None
+
+    # email z Clerk, ak ešte nemáme
+    if not email and clerk_user:
         try:
             primary_id = clerk_user.get("primary_email_address_id")
             if primary_id:
@@ -147,14 +139,31 @@ def ensure_bc_user_by_clerk(clerk_id: str, email: str | None = None):
         except Exception:
             pass
 
-    doc = frappe.get_doc({
+    # meno pre Doctype "Klient"
+    full_name = None
+    if clerk_user:
+        first = clerk_user.get("first_name") or ""
+        last = clerk_user.get("last_name") or ""
+        full_name = (first + " " + last).strip()
+
+        if not full_name:
+            full_name = clerk_user.get("username") or email or clerk_id
+
+    doc_dict = {
         "doctype": "Klient",
         "clerk_id": clerk_id,
         "email": email
-    })
+    }
+
+    # ak máme meno, doplníme ho, aby nepadala validácia "Meno is required"
+    if full_name:
+        doc_dict["meno"] = full_name
+
+    doc = frappe.get_doc(doc_dict)
     doc.insert(ignore_permissions=True)
 
     return doc
+
 
 # ---------------------------------------------------
 # APNs / VoIP JWT
