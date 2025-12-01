@@ -8,8 +8,10 @@
  "field_order": [
   "volajuci",
   "poradca",
-  "zaciatok",
-  "koniec",
+  "zaciatok_datum",
+  "zaciatok_cas",
+  "koniec_datum",
+  "koniec_cas",
   "trvanie_s",
   "pouzity_token"
  ],
@@ -23,18 +25,9 @@
   {
    "fieldname": "poradca",
    "fieldtype": "Link",
+   "hidden": 1,
    "label": "Poradca",
    "options": "Klient"
-  },
-  {
-   "fieldname": "zaciatok",
-   "fieldtype": "Datetime",
-   "label": "Za\u010diatok"
-  },
-  {
-   "fieldname": "koniec",
-   "fieldtype": "Datetime",
-   "label": "Koniec"
   },
   {
    "fieldname": "trvanie_s",
@@ -46,12 +39,32 @@
    "fieldtype": "Link",
    "label": "Pou\u017eit\u00fd token",
    "options": "Token"
+  },
+  {
+   "fieldname": "zaciatok_datum",
+   "fieldtype": "Date",
+   "label": "Za\u010diatok d\u00e1tum"
+  },
+  {
+   "fieldname": "zaciatok_cas",
+   "fieldtype": "Time",
+   "label": "Za\u010diatok \u010das"
+  },
+  {
+   "fieldname": "koniec_datum",
+   "fieldtype": "Date",
+   "label": "Koniec d\u00e1tum"
+  },
+  {
+   "fieldname": "koniec_cas",
+   "fieldtype": "Time",
+   "label": "Koniec \u010da\u0161"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-11-30 16:07:28.718894",
+ "modified": "2025-12-01 12:10:30.643517",
  "modified_by": "Administrator",
  "module": "BCServices",
  "name": "Dennik hovorov",

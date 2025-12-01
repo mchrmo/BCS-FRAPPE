@@ -9,9 +9,11 @@
   "section_break_o89k",
   "predavajuci",
   "kupujuci",
-  "token",
+  "inzerat",
   "suma_eur",
   "datum",
+  "stripe_session_id",
+  "stripe_payment_intent",
   "amended_from"
  ],
  "fields": [
@@ -47,22 +49,32 @@
    "options": "Klient"
   },
   {
-   "fieldname": "token",
-   "fieldtype": "Link",
-   "label": "Token",
-   "options": "Token"
-  },
-  {
    "fieldname": "datum",
    "fieldtype": "Datetime",
    "label": "D\u00e1tum"
+  },
+  {
+   "fieldname": "inzerat",
+   "fieldtype": "Link",
+   "label": "Inzer\u00e1t",
+   "options": "Inzerat"
+  },
+  {
+   "fieldname": "stripe_session_id",
+   "fieldtype": "Data",
+   "label": "Stripe Session ID"
+  },
+  {
+   "fieldname": "stripe_payment_intent",
+   "fieldtype": "Data",
+   "label": "Stripe Payment Intent"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2025-11-30 16:07:28.087292",
+ "modified": "2025-12-01 12:08:10.439185",
  "modified_by": "Administrator",
  "module": "BCServices",
  "name": "Transakcia",
