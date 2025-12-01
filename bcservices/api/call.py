@@ -21,6 +21,7 @@ def get_klient_name_from_clerk(clerk_id: str | None):
 # ----------------------------------------------------------------------
 @frappe.whitelist(methods=["POST"], allow_guest=True)
 def start():
+    # Overenie Clerk JWT
     clerk_id, _ = verify_clerk_bearer_and_get_sub()
 
     data = frappe.local.form_dict or {}
@@ -34,17 +35,27 @@ def start():
     if advisor_clerk == "admin":
         advisor_clerk = "user_30p94nuw9O2UHOEsXmDhV2SgP8N"
 
-    # 🔍 Získaj Klient.name (primárny key)
+    # -------------------------------------------------------------------
+    # Získaj Klient.name (primárny key)
+    # -------------------------------------------------------------------
     caller_name = get_klient_name_from_clerk(caller_clerk)
     advisor_name = get_klient_name_from_clerk(advisor_clerk)
 
     if not caller_name:
-        frappe.throw(f"Could not find caller in Klient: {caller_clerk}", frappe.LinkValidationError)
+        frappe.throw(
+            f"Could not find caller in Klient: {caller_clerk}",
+            frappe.LinkValidationError
+        )
 
     if not advisor_name:
-        frappe.throw(f"Could not find advisor in Klient: {advisor_clerk}", frappe.LinkValidationError)
+        frappe.throw(
+            f"Could not find advisor in Klient: {advisor_clerk}",
+            frappe.LinkValidationError
+        )
 
-    # 🔥 Vytvor nový záznam hovoru
+    # -------------------------------------------------------------------
+    # Vytvor nový záznam hovoru
+    # -------------------------------------------------------------------
     now = now_datetime()
     call = frappe.get_doc({
         "doctype": "Dennik hovorov",
@@ -56,7 +67,7 @@ def start():
     call.insert(ignore_permissions=True)
 
     # -------------------------------------------------------------------
-    # FIND DEVICES OF ADVISOR (multi-device support)
+    # Nájdeme všetky zariadenia poradcu (multi-device)
     # -------------------------------------------------------------------
     devices = frappe.get_all(
         "Zariadenie",
@@ -66,7 +77,7 @@ def start():
     )
 
     # -------------------------------------------------------------------
-    # SEND VoIP PUSH TO **ALL** DEVICES
+    # Pošleme VoIP push na KAŽDÉ zariadenie
     # -------------------------------------------------------------------
     for d in devices:
         token = d.get("voip_token")
@@ -74,21 +85,32 @@ def start():
             continue
 
         try:
+            # 🔥 Získaj username volajúceho (z Doctype Klient)
+            caller_username = frappe.db.get_value(
+                "Klient",
+                {"clerk_id": caller_clerk},
+                "meno"
+            )
+
             send_voip_push(
                 token,
                 {
                     "callId": call.name,
                     "callerId": caller_clerk,
-                    "callerName": caller_clerk,
+                    "callerName": caller_username or caller_clerk,
                     "title": "Prichádzajúci hovor",
-                    "body": "Volá druhá strana",
+                    "body": f"Volá {caller_username or caller_clerk}",
                 }
             )
+
         except Exception as e:
-            frappe.log_error(f"VoIP push failed for device {token}: {e}", "BC VoIP Error")
+            frappe.log_error(
+                f"VoIP push failed for device {token}: {e}",
+                "BC VoIP Error"
+            )
 
+    # -------------------------------------------------------------------
     return {"success": True, "callId": call.name}
-
 
 # ----------------------------------------------------------------------
 # ACCEPT CALL
