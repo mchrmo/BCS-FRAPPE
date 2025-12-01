@@ -107,7 +107,24 @@ def clerk_api(path, method="GET", json_body=None):
 # ---------------------------------------------------
 
 def ensure_bc_user_by_clerk(clerk_id: str, email: str | None = None):
-    """Upsert Klient by clerk_id."""
+    """Upsert Klient by clerk_id, skip admin users."""
+
+    # --- 1. Fetch Clerk user info ---
+    try:
+        clerk_user = clerk_api(f"/v1/users/{clerk_id}")
+    except Exception:
+        clerk_user = {}
+
+    # --- 2. Skip admins (never create Klient for them) ---
+    role = clerk_user.get("public_metadata", {}).get("role")
+    if role == "admin":
+        return frappe._dict({
+            "doctype": "Klient",
+            "name": clerk_id,
+            "zariadenie": []
+        })
+
+    # --- 3. Existing Klient? ---
     name = frappe.db.get_value("Klient", {"clerk_id": clerk_id}, "name")
 
     if name:
@@ -118,13 +135,12 @@ def ensure_bc_user_by_clerk(clerk_id: str, email: str | None = None):
 
         return doc
 
-    # fetch email from Clerk if needed
+    # --- 4. Create new Klient ---
     if not email:
         try:
-            u = clerk_api(f"/v1/users/{clerk_id}")
-            primary_id = u.get("primary_email_address_id")
+            primary_id = clerk_user.get("primary_email_address_id")
             if primary_id:
-                for e in u.get("email_addresses", []):
+                for e in clerk_user.get("email_addresses", []):
                     if e.get("id") == primary_id:
                         email = e.get("email_address")
                         break
