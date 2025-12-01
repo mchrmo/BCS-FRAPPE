@@ -107,16 +107,15 @@ def clerk_api(path, method="GET", json_body=None):
 # ---------------------------------------------------
 
 def ensure_bc_user_by_clerk(clerk_id: str, email: str | None = None):
-    """Upsert Klient by clerk_id – používa iba Clerk.username a email."""
+    """Upsert Klient by clerk_id – s automatickou detekciou správneho fieldname pre 'Meno'."""
 
-    # --- 1) Stiahneme údaje z Clerk (kvôli username/email) ---
+    # --- 1) Stiahni údaje z Clerk (username/email) ---
     clerk_user = None
     try:
         clerk_user = clerk_api(f"/v1/users/{clerk_id}")
     except Exception:
         clerk_user = None
 
-    # Email z Clerk, ak ho ešte nemáme
     if not email and clerk_user:
         try:
             primary_id = clerk_user.get("primary_email_address_id")
@@ -128,14 +127,26 @@ def ensure_bc_user_by_clerk(clerk_id: str, email: str | None = None):
         except Exception:
             pass
 
-    # Z username spravíme meno (fallback: email → clerk_id)
     username = None
     if clerk_user:
         username = clerk_user.get("username")
 
-    full_name = username or email or clerk_id  # 👈 nikdy nie prázdne
+    full_name = username or email or clerk_id
 
-    # --- 2) Existuje Klient s týmto clerk_id? ---
+    # --- 2) Nájdeme správny fieldname pre label "Meno" ---
+    meta = frappe.get_meta("Klient")
+
+    name_field = None
+    for f in meta.fields:
+        if f.label and f.label.strip().lower() == "meno":
+            name_field = f.fieldname
+            break
+
+    # fallback ak by zlyhalo
+    if not name_field:
+        name_field = "username"
+
+    # --- 3) Hľadaj existujúceho klienta ---
     name = frappe.db.get_value("Klient", {"clerk_id": clerk_id}, "name")
 
     if name:
@@ -143,14 +154,12 @@ def ensure_bc_user_by_clerk(clerk_id: str, email: str | None = None):
 
         changed = False
 
-        # doplň email, ak chýba
         if email and not getattr(doc, "email", None):
             doc.email = email
             changed = True
 
-        # doplň meno, ak chýba
-        if hasattr(doc, "meno") and not getattr(doc, "meno", None):
-            doc.meno = full_name
+        if not getattr(doc, name_field, None):
+            setattr(doc, name_field, full_name)
             changed = True
 
         if changed:
@@ -158,20 +167,18 @@ def ensure_bc_user_by_clerk(clerk_id: str, email: str | None = None):
 
         return doc
 
-    # --- 3) Neexistuje → vytvoríme nového Klienta ---
+    # --- 4) Vytvor nového klienta ---
     doc_dict = {
         "doctype": "Klient",
         "clerk_id": clerk_id,
         "email": email,
-        "meno": full_name,      # 👈 povinné pole „Meno“
+        name_field: full_name,
     }
 
     doc = frappe.get_doc(doc_dict)
     doc.insert(ignore_permissions=True)
 
     return doc
-
-
 
 
 # ---------------------------------------------------
