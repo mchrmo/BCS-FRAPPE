@@ -109,19 +109,7 @@ def clerk_api(path, method="GET", json_body=None):
 def ensure_bc_user_by_clerk(clerk_id: str, email: str | None = None):
     """Upsert Klient by clerk_id – používa iba Clerk.username a email."""
 
-    # 1) Existuje Klient s týmto clerk_id?
-    name = frappe.db.get_value("Klient", {"clerk_id": clerk_id}, "name")
-
-    if name:
-        doc = frappe.get_doc("Klient", name)
-
-        # doplň email, ak chýba
-        if email and not doc.email:
-            frappe.db.set_value("Klient", name, "email", email)
-
-        return doc
-
-    # 2) Ak neexistuje, pokúsime sa stiahnuť údaje z Clerk
+    # --- 1) Stiahneme údaje z Clerk (kvôli username/email) ---
     clerk_user = None
     try:
         clerk_user = clerk_api(f"/v1/users/{clerk_id}")
@@ -140,24 +128,49 @@ def ensure_bc_user_by_clerk(clerk_id: str, email: str | None = None):
         except Exception:
             pass
 
-    # 3) Z username spravíme meno (fallback: email → clerk_id)
+    # Z username spravíme meno (fallback: email → clerk_id)
     username = None
     if clerk_user:
         username = clerk_user.get("username")
 
-    full_name = username or email or clerk_id  # 👈 vždy niečo, nikdy prázdne
+    full_name = username or email or clerk_id  # 👈 nikdy nie prázdne
 
+    # --- 2) Existuje Klient s týmto clerk_id? ---
+    name = frappe.db.get_value("Klient", {"clerk_id": clerk_id}, "name")
+
+    if name:
+        doc = frappe.get_doc("Klient", name)
+
+        changed = False
+
+        # doplň email, ak chýba
+        if email and not getattr(doc, "email", None):
+            doc.email = email
+            changed = True
+
+        # doplň meno, ak chýba
+        if hasattr(doc, "meno") and not getattr(doc, "meno", None):
+            doc.meno = full_name
+            changed = True
+
+        if changed:
+            doc.save(ignore_permissions=True)
+
+        return doc
+
+    # --- 3) Neexistuje → vytvoríme nového Klienta ---
     doc_dict = {
         "doctype": "Klient",
         "clerk_id": clerk_id,
         "email": email,
-        "meno": full_name,      # 👈 povinné pole „Meno“ v Doctype Klient
+        "meno": full_name,      # 👈 povinné pole „Meno“
     }
 
     doc = frappe.get_doc(doc_dict)
     doc.insert(ignore_permissions=True)
 
     return doc
+
 
 
 
