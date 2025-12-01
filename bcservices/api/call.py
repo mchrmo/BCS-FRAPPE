@@ -31,13 +31,11 @@ def start():
     if not caller_clerk or not advisor_clerk:
         frappe.throw("Missing callerId or advisorId")
 
-    # 🔥 iOS posiela "admin"? Prevedieme na reálny Clerk ID admina
+    # Ak iOS posiela "admin", namapujeme ho na reálne Clerk ID
     if advisor_clerk == "admin":
         advisor_clerk = "user_30p94nuw9O2UHOEsXmDhV2SgP8N"
 
-    # -------------------------------------------------------------------
-    # Získaj Klient.name (primárny key)
-    # -------------------------------------------------------------------
+    # Lookup Klient.name
     caller_name = get_klient_name_from_clerk(caller_clerk)
     advisor_name = get_klient_name_from_clerk(advisor_clerk)
 
@@ -53,9 +51,7 @@ def start():
             frappe.LinkValidationError
         )
 
-    # -------------------------------------------------------------------
-    # Vytvor nový záznam hovoru
-    # -------------------------------------------------------------------
+    # Vytvor nový hovor
     now = now_datetime()
     call = frappe.get_doc({
         "doctype": "Dennik hovorov",
@@ -66,9 +62,7 @@ def start():
     })
     call.insert(ignore_permissions=True)
 
-    # -------------------------------------------------------------------
-    # Nájdeme všetky zariadenia poradcu (multi-device)
-    # -------------------------------------------------------------------
+    # Nájdeme všetky zariadenia (multi-device)
     devices = frappe.get_all(
         "Zariadenie",
         filters={"parent": advisor_name},
@@ -76,32 +70,30 @@ def start():
         limit_page_length=20,
     )
 
-    # -------------------------------------------------------------------
-    # Pošleme VoIP push na KAŽDÉ zariadenie
-    # -------------------------------------------------------------------
+    # Pošleme VoIP push na všetky zariadenia
     for d in devices:
         token = d.get("voip_token")
         if not token:
             continue
 
         try:
-            # 🔥 Získaj username volajúceho (z Doctype Klient)
+            # Username podľa Doctype Klient
             caller_username = frappe.db.get_value(
-			    "Klient",
-			    {"clerk_id": caller_clerk},
-			    "username"
-			)
-			
-			send_voip_push(
-			    token,
-			    {
-			        "callId": call.name,
-			        "callerId": caller_clerk,
-			        "callerName": caller_username or caller_clerk,
-			        "title": "Prichádzajúci hovor",
-			        "body": f"Volá {caller_username or caller_clerk}",
-			    }
-			)
+                "Klient",
+                {"clerk_id": caller_clerk},
+                "username"
+            )
+
+            send_voip_push(
+                token,
+                {
+                    "callId": call.name,
+                    "callerId": caller_clerk,
+                    "callerName": caller_username or caller_clerk,
+                    "title": "Prichádzajúci hovor",
+                    "body": f"Volá {caller_username or caller_clerk}",
+                }
+            )
 
         except Exception as e:
             frappe.log_error(
@@ -109,7 +101,6 @@ def start():
                 "BC VoIP Error"
             )
 
-    # -------------------------------------------------------------------
     return {"success": True, "callId": call.name}
 
 # ----------------------------------------------------------------------
