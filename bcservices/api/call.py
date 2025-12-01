@@ -2,16 +2,14 @@
 
 import frappe
 from frappe.utils import now_datetime
-from .utils import (
-    verify_clerk_bearer_and_get_sub,
-)
+from datetime import datetime
+from .utils import verify_clerk_bearer_and_get_sub
 
-# -----------------------------------------------------------------------------
+# ----------------------------------------------------------------------
 # START CALL
-# -----------------------------------------------------------------------------
+# ----------------------------------------------------------------------
 @frappe.whitelist(methods=["POST"], allow_guest=True)
 def start():
-    """Vytvorí záznam v 'BC Dennik hovorov' a pošle VoIP push."""
     from .utils import send_voip_push
 
     clerk_id, _ = verify_clerk_bearer_and_get_sub()
@@ -23,20 +21,25 @@ def start():
     if not caller or not advisor:
         frappe.throw("Missing callerId or advisorId")
 
-    # 🔥 Mapovanie admin -> reálny clerk_id
+    # premapovanie admin -> real advisor ID
     if advisor == "admin":
         advisor = "user_30p94nuw9O2UHOEsXmDhV2SgP8N"
 
-    # 🔥 Vytvorenie záznamu (Doctype nemá pole 'stav')
+    now = now_datetime()
+
+    # 🔥 Vytvor nový záznam podľa nového Doctype
     call = frappe.get_doc({
         "doctype": "Dennik hovorov",
         "volajuci": caller,
         "poradca": advisor,
-        "zaciatok": now_datetime()
+        "zaciatok_datum": now.date(),
+        "zaciatok_cas": now.time().strftime("%H:%M:%S"),
     })
     call.insert(ignore_permissions=True)
 
-    # 🔥 Nájsť device poradcu
+    # --------------------------------------------------------
+    # Nájsť device poradcu
+    # --------------------------------------------------------
     advisor_user_ids = frappe.get_all(
         "Klient",
         filters={"clerk_id": advisor},
@@ -52,33 +55,32 @@ def start():
             limit_page_length=5,
         )
 
-    # 🔥 Poslať VoIP push
+    # --------------------------------------------------------
+    # Poslať VoIP push
+    # --------------------------------------------------------
     if devices:
         token = devices[0].get("voip_token")
         if token:
             try:
                 send_voip_push(
-				    token,
-				    {
-				        "callId": call.name,
-				        "callerId": caller,             # ← NUTNÉ PRE CALLKIT
-				        "callerName": caller,           # ← voliteľné, ale odporúčané
-				        "title": "Prichádzajúci hovor",
-				        "body": "Volá druhá strana",
-				    }
-				)
-
+                    token,
+                    {
+                        "callId": call.name,
+                        "callerId": caller,
+                        "callerName": caller,
+                        "title": "Prichádzajúci hovor",
+                        "body": "Volá druhá strana",
+                    }
+                )
             except Exception as e:
                 frappe.log_error(f"VoIP push failed: {e}", "BC VoIP Error")
 
-    return {
-        "success": True,
-        "callId": call.name
-    }
+    return {"success": True, "callId": call.name}
 
-# -----------------------------------------------------------------------------
+
+# ----------------------------------------------------------------------
 # ACCEPT CALL
-# -----------------------------------------------------------------------------
+# ----------------------------------------------------------------------
 @frappe.whitelist(methods=["POST"], allow_guest=True)
 def accept():
     clerk_id, _ = verify_clerk_bearer_and_get_sub()
@@ -93,14 +95,15 @@ def accept():
     if doc.poradca != clerk_id:
         frappe.throw("You cannot accept someone else's call", frappe.PermissionError)
 
-    # Tento Doctype nemá pole 'odpoved'
+    # v tomto Doctype sa nič nemení pri accept
     doc.save(ignore_permissions=True)
 
     return {"success": True, "callId": call_id}
 
-# -----------------------------------------------------------------------------
+
+# ----------------------------------------------------------------------
 # END CALL
-# -----------------------------------------------------------------------------
+# ----------------------------------------------------------------------
 @frappe.whitelist(methods=["POST"], allow_guest=True)
 def end():
     clerk_id, _ = verify_clerk_bearer_and_get_sub()
@@ -112,23 +115,32 @@ def end():
 
     doc = frappe.get_doc("Dennik hovorov", call_id)
 
-    doc.koniec = now_datetime()
+    now = now_datetime()
 
-    # vypočítaj trvanie
+    # 🔥 Uložiť koniec hovoru
+    doc.koniec_datum = now.date()
+    doc.koniec_cas = now.time().strftime("%H:%M:%S")
+
+    # 🔥 Vypočítať trvanie
     try:
-        if doc.zaciatok and doc.koniec:
-            seconds = int((doc.koniec - doc.zaciatok).total_seconds())
+        if doc.zaciatok_datum and doc.zaciatok_cas and doc.koniec_datum and doc.koniec_cas:
+            start_dt = datetime.combine(doc.zaciatok_datum, datetime.strptime(doc.zaciatok_cas, "%H:%M:%S").time())
+            end_dt = datetime.combine(doc.koniec_datum, datetime.strptime(doc.koniec_cas, "%H:%M:%S").time())
+
+            seconds = int((end_dt - start_dt).total_seconds())
             doc.trvanie_s = seconds
-    except Exception:
-        pass
+
+    except Exception as e:
+        frappe.log_error(f"Duration calc error: {e}", "BC Call Duration Error")
 
     doc.save(ignore_permissions=True)
 
     return {"success": True, "callId": call_id}
 
-# -----------------------------------------------------------------------------
+
+# ----------------------------------------------------------------------
 # CALL HISTORY
-# -----------------------------------------------------------------------------
+# ----------------------------------------------------------------------
 @frappe.whitelist(methods=["GET"], allow_guest=True)
 def history(userId: str):
     clerk_id, _ = verify_clerk_bearer_and_get_sub()
@@ -139,8 +151,16 @@ def history(userId: str):
     calls = frappe.get_all(
         "Dennik hovorov",
         filters={"volajuci": userId},
-        fields=["name", "poradca", "zaciatok", "koniec", "trvanie_s"],
-        order_by="zaciatok desc",
+        fields=[
+            "name",
+            "poradca",
+            "zaciatok_datum",
+            "zaciatok_cas",
+            "koniec_datum",
+            "koniec_cas",
+            "trvanie_s",
+        ],
+        order_by="zaciatok_datum desc, zaciatok_cas desc",
     )
 
     return {"success": True, "calls": calls}
