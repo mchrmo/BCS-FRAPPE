@@ -26,7 +26,7 @@
   },
   {
    "fieldname": "heslo",
-   "fieldtype": "Password",
+   "fieldtype": "Data",
    "label": "Heslo"
   },
   {
@@ -46,7 +46,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-11-30 15:19:50.193572",
+ "modified": "2025-12-01 13:34:52.887939",
  "modified_by": "Administrator",
  "module": "BCServices",
  "name": "Klient",
