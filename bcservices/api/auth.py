@@ -114,9 +114,33 @@ def sso(token: str | None = None):
 # INTERNAL FUNCTIONS – Clerk username & upsert helpers
 # -----------------------------------------------------------------------------
 
+def _transliterate_slovak(text: str) -> str:
+    """Konvertuje slovenské/české znaky na ich ASCII ekvivalenty."""
+    mapping = {
+        'á': 'a', 'ä': 'a', 'č': 'c', 'ď': 'd', 'é': 'e', 'í': 'i', 'ľ': 'l',
+        'ň': 'n', 'ó': 'o', 'ô': 'o', 'ŕ': 'r', 'š': 's', 'ť': 't', 'ú': 'u',
+        'ý': 'y', 'ž': 'z',
+        'Á': 'A', 'Ä': 'A', 'Č': 'C', 'Ď': 'D', 'É': 'E', 'Í': 'I', 'Ľ': 'L',
+        'Ň': 'N', 'Ó': 'O', 'Ô': 'O', 'Ŕ': 'R', 'Š': 'S', 'Ť': 'T', 'Ú': 'U',
+        'Ý': 'Y', 'Ž': 'Z',
+    }
+    for char, replacement in mapping.items():
+        text = text.replace(char, replacement)
+    return text
+
 def _normalize_username_base(email_or_hint: str | None) -> str:
-    base = (email_or_hint or "user").split("@")[0].lower()
+    base = (email_or_hint or "user").split("@")[0] # odstraň 'lower()'
+    
+    # 1. Transliterácia na ASCII
+    base = _transliterate_slovak(base)
+    
+    # 2. Všetko na malé písmená
+    base = base.lower()
+    
+    # 3. Odstránenie neplatných znakov
+    # Ponecháme a-z (po transliterácii), 0-9, bodky, podčiarkovníky, pomlčky
     base = re.sub(r"[^a-z0-9._-]", "", base).strip("._-")
+    
     return base or "user"
 
 
