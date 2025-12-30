@@ -2,8 +2,9 @@
 
 import math
 import frappe
-from frappe.utils import now_datetime
+from frappe.utils import now_datetime, getdate, get_time
 from datetime import datetime
+
 
 from .utils import verify_clerk_bearer_and_get_sub, send_voip_push
 
@@ -192,6 +193,11 @@ def accept():
 # ----------------------------------------------------------------------
 @frappe.whitelist(methods=["POST"], allow_guest=True)
 def end():
+    import math
+    import frappe
+    from frappe.utils import now_datetime, getdate, get_time
+    from datetime import datetime
+
     clerk_id, _ = verify_clerk_bearer_and_get_sub()
     data = frappe.local.form_dict or {}
 
@@ -206,25 +212,27 @@ def end():
     doc.koniec_datum = now.date()
     doc.koniec_cas = now.time().strftime("%H:%M:%S")
 
-    # Výpočet trvania (sekundy)
+    # ✅ Robustný výpočet trvania (funguje pre string aj time)
     try:
-        start_dt = datetime.combine(
-            doc.zaciatok_datum,
-            datetime.strptime(doc.zaciatok_cas, "%H:%M:%S").time()
-        )
-        end_dt = datetime.combine(
-            doc.koniec_datum,
-            datetime.strptime(doc.koniec_cas, "%H:%M:%S").time()
-        )
+        start_date = getdate(doc.zaciatok_datum)
+        start_time = get_time(doc.zaciatok_cas)
+
+        end_date = getdate(doc.koniec_datum)
+        end_time = get_time(doc.koniec_cas)
+
+        start_dt = datetime.combine(start_date, start_time)
+        end_dt = datetime.combine(end_date, end_time)
+
         doc.trvanie_s = max(0, int((end_dt - start_dt).total_seconds()))
     except Exception as e:
         frappe.log_error(f"Duration calc error: {e}", "BC Call Duration Error")
+        doc.trvanie_s = doc.trvanie_s or 0
 
     # --- ODRÁTANIE MINÚT Z TOKENU (len ak sa použil token) ---
     try:
         should_deduct = bool(getattr(doc, "pouzity_token", None)) and (doc.trvanie_s or 0) > 0
 
-        # ak máš field "prijaty", tak odrátaj iba ak bol prijatý
+        # ak máš field "prijaty", odrátaj iba ak bol prijatý
         if hasattr(doc, "prijaty") and not getattr(doc, "prijaty"):
             should_deduct = False
 
@@ -233,6 +241,7 @@ def end():
             should_deduct = False
 
         if should_deduct:
+            # billing-friendly: zaokrúhli nahor (1 sekunda = 1 min)
             minutes_used = int(math.ceil((doc.trvanie_s or 0) / 60.0))
 
             # zapíš minuty_pouzite ak existuje
@@ -246,12 +255,7 @@ def end():
             token_doc.minuty_ostavajuce = remaining_after
 
             # tvoje options: active / listed / spent
-            if remaining_after == 0:
-                token_doc.stav = "spent"
-            else:
-                # ak bol active, nechaj active; ak bol listed (marketplace), je na tebe,
-                # ale pre istotu keď sa používa, dávam active
-                token_doc.stav = "active"
+            token_doc.stav = "spent" if remaining_after == 0 else "active"
 
             token_doc.save(ignore_permissions=True)
 
@@ -259,7 +263,15 @@ def end():
         frappe.log_error(f"Token deduct error: {e}", "BC Token Deduct Error")
 
     doc.save(ignore_permissions=True)
-    return {"success": True, "callId": call_id}
+
+    return {
+        "success": True,
+        "callId": call_id,
+        "duration_s": doc.trvanie_s,
+        "token": getattr(doc, "pouzity_token", None),
+        "minutes_deducted": getattr(doc, "minuty_pouzite", None) if hasattr(doc, "minuty_pouzite") else None,
+    }
+
 
 
 # ----------------------------------------------------------------------
