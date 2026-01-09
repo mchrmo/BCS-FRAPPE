@@ -68,32 +68,32 @@ def call_logs(userId: str = None):
 @frappe.whitelist(methods=["GET"], allow_guest=True)
 def history(userId: str = None):
     if not userId:
-        frappe.throw("Missing userId", frappe.ValidationError)
+        return {"success": False, "error": "Missing userId"}
 
-    # 1. Nájdi klienta (pridaj ignore_permissions pre istotu)
+    # 1. Nájdeme meno Klienta podľa Clerk ID
     bc_user = frappe.db.get_value("Klient", {"clerk_id": userId}, "name", ignore_permissions=True)
 
     if not bc_user:
         return {"success": True, "items": []}
 
-    # 2. Vytiahni transakcie
+    # 2. Načítame transakcie (v poli fields musí byť 'inzerat', nie 'token')
     transactions = frappe.get_all(
         "Transakcia",
         filters={"docstatus": ["<", 2]},
         or_filters={"predavajuci": bc_user, "kupujuci": bc_user},
-        fields=["name", "predavajuci", "kupujuci", "token", "suma_eur", "datum"],
-        order_by="datum desc",
+        fields=["name", "predavajuci", "kupujuci", "suma_eur", "datum", "inzerat"], 
         ignore_permissions=True
     )
 
     out = []
     for row in transactions:
-        # 🔥 FIX: Ak transakcia nemá priradený token, preskočíme ju, aby nevznikol TypeError
-        if not row.token:
-            continue
-
-        # Získaj rok z tokenu bezpečne
-        vydany_rok = frappe.db.get_value("Token", row.token, "vydany_rok", ignore_permissions=True) or 0
+        vydany_rok = 0
+        
+        # 🔥 OPRAVA: Používame názov poľa 'inzerat' podľa tvojho Customize Form
+        if row.get("inzerat"):
+            # Predpokladáme, že Inzerát má v sebe prepojenie na Token alebo má priamo pole rok
+            # Ak je Inzerát prepojený na Token, skúsime získať rok odtiaľ
+            vydany_rok = frappe.db.get_value("Inzerát", row.inzerat, "vydany_rok", ignore_permissions=True) or 2026
         
         direction = "sell" if row.predavajuci == bc_user else "buy"
 
@@ -101,7 +101,7 @@ def history(userId: str = None):
             "id": row.name,
             "type": "trade",
             "direction": direction,
-            "price": float(row.suma_eur or 0), # Ošetrenie prázdnej sumy
+            "price": float(row.suma_eur or 0),
             "year": vydany_rok,
             "createdAt": row.datum,
         })
