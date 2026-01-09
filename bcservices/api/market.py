@@ -70,28 +70,29 @@ def history(userId: str = None):
     if not userId:
         frappe.throw("Missing userId", frappe.ValidationError)
 
-    # 1. Pridané ignore_permissions=True
+    # 1. Nájdi klienta (pridaj ignore_permissions pre istotu)
     bc_user = frappe.db.get_value("Klient", {"clerk_id": userId}, "name", ignore_permissions=True)
 
     if not bc_user:
         return {"success": True, "items": []}
 
-    # 2. Pridané ignore_permissions=True aj sem
+    # 2. Vytiahni transakcie
     transactions = frappe.get_all(
         "Transakcia",
         filters={"docstatus": ["<", 2]},
-        or_filters={
-            "predavajuci": bc_user,
-            "kupujuci": bc_user
-        },
+        or_filters={"predavajuci": bc_user, "kupujuci": bc_user},
         fields=["name", "predavajuci", "kupujuci", "token", "suma_eur", "datum"],
         order_by="datum desc",
-        ignore_permissions=True  # <--- EXTREMNE DOLEZITE
+        ignore_permissions=True
     )
 
     out = []
     for row in transactions:
-        # 3. Aj pri získavaní roka z tokenu
+        # 🔥 FIX: Ak transakcia nemá priradený token, preskočíme ju, aby nevznikol TypeError
+        if not row.token:
+            continue
+
+        # Získaj rok z tokenu bezpečne
         vydany_rok = frappe.db.get_value("Token", row.token, "vydany_rok", ignore_permissions=True) or 0
         
         direction = "sell" if row.predavajuci == bc_user else "buy"
@@ -100,7 +101,7 @@ def history(userId: str = None):
             "id": row.name,
             "type": "trade",
             "direction": direction,
-            "price": float(row.suma_eur or 0),
+            "price": float(row.suma_eur or 0), # Ošetrenie prázdnej sumy
             "year": vydany_rok,
             "createdAt": row.datum,
         })
