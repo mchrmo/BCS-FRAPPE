@@ -116,6 +116,39 @@ def history(userId: str = None):
 
 # Ostatné funkcie (listings, call_logs, list_token) ostanú tak ako sú, 
 # len v nich skontroluj či nepoužívaš frappe.db.get_value s ignore_permissions.
+@frappe.whitelist(methods=["POST"], allow_guest=True)
+def cancel_listing():
+    # Získame dáta z requestu
+    data = frappe.form_dict
+    listing_id = data.get("listingId")
+    
+    if not listing_id:
+        return {"success": False, "error": "Chýba listingId"}
+
+    # Načítame inzerát
+    if not frappe.db.exists("Inzerat", listing_id):
+        return {"success": False, "error": "Inzerát neexistuje"}
+    
+    listing = frappe.get_doc("Inzerat", listing_id)
+
+    # Kontrola stavu - rušiť sa dá len otvorený inzerát
+    if listing.stav != "open":
+        return {"success": False, "error": "Inzerát už nie je možné zrušiť (stav: {})".format(listing.stav)}
+
+    try:
+        # 1. Zmeníme stav inzerátu na zrušený
+        listing.stav = "cancelled"
+        listing.save(ignore_permissions=True)
+
+        # 2. Vrátime tokenu stav "active", aby sa znova započítaval do balancu
+        if listing.token:
+            frappe.db.set_value("Token", listing.token, "stav", "active")
+
+        return {"success": True}
+    
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Cancel Listing Error")
+        return {"success": False, "error": str(e)}
 
 @frappe.whitelist(methods=["POST"], allow_guest=True)
 def list_token(sellerId: str = None, tokenId: str = None, priceEur: float = None):
