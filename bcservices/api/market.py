@@ -16,7 +16,7 @@ def listings():
 
         out.append({
             "id": row.name,                  # ID inzerátu
-            "tokenId": tok.name,             # <-- TOTO MUSÍ BYŤ!
+            "tokenId": tok.name,             # <-- TOTO MUSÍ BYŤ
             "token": {
                 "id": tok.name,
                 "issuedYear": tok.vydany_rok,
