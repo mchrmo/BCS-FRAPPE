@@ -70,13 +70,11 @@ def history(userId: str = None):
     if not userId:
         return {"success": False, "error": "Missing userId"}
 
-    # 1. Nájdeme meno Klienta podľa Clerk ID
     bc_user = frappe.db.get_value("Klient", {"clerk_id": userId}, "name", ignore_permissions=True)
-
     if not bc_user:
         return {"success": True, "items": []}
 
-    # 2. Načítame transakcie (v poli fields musí byť 'inzerat', nie 'token')
+    # Načítame transakcie s poľom 'inzerat'
     transactions = frappe.get_all(
         "Transakcia",
         filters={"docstatus": ["<", 2]},
@@ -87,13 +85,13 @@ def history(userId: str = None):
 
     out = []
     for row in transactions:
-        vydany_rok = 0
+        vydany_rok = 2026 # Predvolená hodnota
         
-        # 🔥 OPRAVA: Používame názov poľa 'inzerat' podľa tvojho Customize Form
+        # Ak existuje link na inzerát, skúsime vytiahnuť rok z tokenu
         if row.get("inzerat"):
-            # Predpokladáme, že Inzerát má v sebe prepojenie na Token alebo má priamo pole rok
-            # Ak je Inzerát prepojený na Token, skúsime získať rok odtiaľ
-            vydany_rok = frappe.db.get_value("Inzerát", row.inzerat, "vydany_rok", ignore_permissions=True) or 2026
+            token_id = frappe.db.get_value("Inzerat", row.inzerat, "token", ignore_permissions=True)
+            if token_id:
+                vydany_rok = frappe.db.get_value("Token", token_id, "vydany_rok", ignore_permissions=True) or 2026
         
         direction = "sell" if row.predavajuci == bc_user else "buy"
 
