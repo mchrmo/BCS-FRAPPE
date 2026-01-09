@@ -1,4 +1,5 @@
 import frappe
+from .utils import verify_clerk_bearer_and_get_sub
 
 @frappe.whitelist(methods=["GET"], allow_guest=True)
 def listings():
@@ -70,12 +71,12 @@ def history(userId: str = None):
     if not userId:
         return {"success": False, "error": "Missing userId"}
 
-    # 1. Získanie ID klienta
-    bc_user = frappe.db.get_value("Klient", {"clerk_id": userId}, "name", ignore_permissions=True)
+    # OPRAVA: Odstránené ignore_permissions, ktoré db.get_value nepodporuje
+    bc_user = frappe.db.get_value("Klient", {"clerk_id": userId}, "name")
+    
     if not bc_user:
         return {"success": True, "items": []}
 
-    # 2. Načítanie transakcií (používame or_filters pre nákup aj predaj)
     transactions = frappe.get_all(
         "Transakcia",
         filters={"docstatus": ["<", 2]},
@@ -87,20 +88,17 @@ def history(userId: str = None):
 
     out = []
     for row in transactions:
-        vydany_rok = 2026 # Default
+        vydany_rok = 2026
         
-        # 3. Bezpečné získanie roku z tokenu cez inzerát
         if row.get("inzerat"):
-            # Získame ID tokenu z inzerátu
-            token_id = frappe.db.get_value("Inzerat", row.inzerat, "token", ignore_permissions=True)
+            # OPRAVA: Odstránené ignore_permissions
+            token_id = frappe.db.get_value("Inzerat", row.inzerat, "token")
             if token_id:
-                # Získame rok z tokenu
-                vydany_rok = frappe.db.get_value("Token", token_id, "vydany_rok", ignore_permissions=True) or 2026
+                # OPRAVA: Odstránené ignore_permissions
+                vydany_rok = frappe.db.get_value("Token", token_id, "vydany_rok") or 2026
 
-        # 4. Určenie smeru (Slovenčina/Logika)
         direction = "sell" if row.predavajuci == bc_user else "buy"
         
-        # Určenie typu (ak chýba predávajúci, ide o nákup z pokladnice)
         tx_type = "trade"
         if not row.predavajuci and row.kupujuci == bc_user:
             tx_type = "purchase"
@@ -109,15 +107,15 @@ def history(userId: str = None):
             "id": row.name,
             "type": tx_type,
             "direction": direction,
-            "price": float(row.suma_eur or 0), # Ošetrenie float(None)
+            "price": float(row.suma_eur or 0),
             "year": vydany_rok,
             "createdAt": row.datum,
         })
 
     return {"success": True, "items": out}
 
-import frappe
-from .utils import verify_clerk_bearer_and_get_sub
+# Ostatné funkcie (listings, call_logs, list_token) ostanú tak ako sú, 
+# len v nich skontroluj či nepoužívaš frappe.db.get_value s ignore_permissions.
 
 @frappe.whitelist(methods=["POST"], allow_guest=True)
 def list_token(sellerId: str = None, tokenId: str = None, priceEur: float = None):
