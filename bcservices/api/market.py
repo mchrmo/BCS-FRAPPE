@@ -70,59 +70,40 @@ def history(userId: str = None):
     if not userId:
         frappe.throw("Missing userId", frappe.ValidationError)
 
-    # nájdi Klient
-    user_doc = frappe.get_all(
-        "Klient",
-        filters={"clerk_id": userId},
-        limit=1
-    )
+    # 1. Pridané ignore_permissions=True
+    bc_user = frappe.db.get_value("Klient", {"clerk_id": userId}, "name", ignore_permissions=True)
 
-    if not user_doc:
+    if not bc_user:
         return {"success": True, "items": []}
 
-    bc_user = user_doc[0].name
-
-    # 1) transakcie kde JE user predavajuci
-    sold = frappe.get_all(
-        "BC Transakcia",
-        filters={"predavajuci": bc_user},
-        fields=["name", "predavajuci", "kupujuci", "token", "suma_eur", "datum"],
-        order_by="datum desc"
-    )
-
-    # 2) transakcie kde JE user kupujuci
-    bought = frappe.get_all(
+    # 2. Pridané ignore_permissions=True aj sem
+    transactions = frappe.get_all(
         "Transakcia",
-        filters={"kupujuci": bc_user},
+        filters={"docstatus": ["<", 2]},
+        or_filters={
+            "predavajuci": bc_user,
+            "kupujuci": bc_user
+        },
         fields=["name", "predavajuci", "kupujuci", "token", "suma_eur", "datum"],
-        order_by="datum desc"
+        order_by="datum desc",
+        ignore_permissions=True  # <--- EXTREMNE DOLEZITE
     )
-
-    rows = sold + bought
 
     out = []
-
-    for row in rows:
-        token = frappe.get_doc("Token", row.token)
-
-        # urč smer
-        if row.predavajuci == bc_user:
-            direction = "sell"    # user zarobil
-        elif row.kupujuci == bc_user:
-            direction = "buy"     # user minul
-        else:
-            continue
+    for row in transactions:
+        # 3. Aj pri získavaní roka z tokenu
+        vydany_rok = frappe.db.get_value("Token", row.token, "vydany_rok", ignore_permissions=True) or 0
+        
+        direction = "sell" if row.predavajuci == bc_user else "buy"
 
         out.append({
             "id": row.name,
             "type": "trade",
             "direction": direction,
             "price": float(row.suma_eur or 0),
-            "year": token.vydany_rok,
+            "year": vydany_rok,
             "createdAt": row.datum,
         })
-
-    out = sorted(out, key=lambda x: x["createdAt"], reverse=True)
 
     return {"success": True, "items": out}
 
