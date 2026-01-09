@@ -70,42 +70,51 @@ def history(userId: str = None):
     if not userId:
         return {"success": False, "error": "Missing userId"}
 
+    # 1. Získanie ID klienta
     bc_user = frappe.db.get_value("Klient", {"clerk_id": userId}, "name", ignore_permissions=True)
     if not bc_user:
         return {"success": True, "items": []}
 
-    # Načítame transakcie s poľom 'inzerat'
+    # 2. Načítanie transakcií (používame or_filters pre nákup aj predaj)
     transactions = frappe.get_all(
         "Transakcia",
         filters={"docstatus": ["<", 2]},
         or_filters={"predavajuci": bc_user, "kupujuci": bc_user},
-        fields=["name", "predavajuci", "kupujuci", "suma_eur", "datum", "inzerat"], 
+        fields=["name", "predavajuci", "kupujuci", "suma_eur", "datum", "inzerat"],
+        order_by="datum desc",
         ignore_permissions=True
     )
 
     out = []
     for row in transactions:
-        vydany_rok = 2026 # Predvolená hodnota
+        vydany_rok = 2026 # Default
         
-        # Ak existuje link na inzerát, skúsime vytiahnuť rok z tokenu
+        # 3. Bezpečné získanie roku z tokenu cez inzerát
         if row.get("inzerat"):
+            # Získame ID tokenu z inzerátu
             token_id = frappe.db.get_value("Inzerat", row.inzerat, "token", ignore_permissions=True)
             if token_id:
+                # Získame rok z tokenu
                 vydany_rok = frappe.db.get_value("Token", token_id, "vydany_rok", ignore_permissions=True) or 2026
-        
+
+        # 4. Určenie smeru (Slovenčina/Logika)
         direction = "sell" if row.predavajuci == bc_user else "buy"
+        
+        # Určenie typu (ak chýba predávajúci, ide o nákup z pokladnice)
+        tx_type = "trade"
+        if not row.predavajuci and row.kupujuci == bc_user:
+            tx_type = "purchase"
 
         out.append({
             "id": row.name,
-            "type": "trade",
+            "type": tx_type,
             "direction": direction,
-            "price": float(row.suma_eur or 0),
+            "price": float(row.suma_eur or 0), # Ošetrenie float(None)
             "year": vydany_rok,
             "createdAt": row.datum,
         })
 
     return {"success": True, "items": out}
-
 
 import frappe
 from .utils import verify_clerk_bearer_and_get_sub
