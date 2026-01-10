@@ -19,7 +19,7 @@ SERVICE_ACCOUNT_FILE = frappe.get_site_path(
 )
 
 # Adminov Google kalendár
-ADMIN_CALENDAR_ID = "primary"  # môžeš dať aj email admin@gmail.com
+ADMIN_CALENDAR_ID = "andrej.cernak2007@gmail.com"  # môžeš dať aj email admin@gmail.com
 
 # --------------------------------------------------
 # HELPERS
