@@ -83,13 +83,13 @@ def start():
     if not caller_name:
         frappe.throw(
             f"Could not find caller in Klient: {caller_clerk}",
-            frappe.LinkValidationError
+            frappe.LinkValidationError,
         )
 
     if not advisor_name:
         frappe.throw(
             f"Could not find advisor in Klient: {advisor_clerk}",
-            frappe.LinkValidationError
+            frappe.LinkValidationError,
         )
 
     now = now_datetime()
@@ -101,13 +101,16 @@ def start():
     if token_required:
         used_token = pick_active_token_for_holder(caller_name)
         if not used_token:
-            # Vraciame "success": False aby iOS vedel zobraziť hlášku
+            # Vraciame success=False aby iOS vedel zobraziť hlášku
             return {
                 "success": False,
-                "error": "V piatok je na hovor potrebný token (minúty). Nemáš žiadne zostávajúce minúty."
+                "error": (
+                    "V piatok je na hovor potrebný token (minúty). "
+                    "Nemáš žiadne zostávajúce minúty."
+                ),
             }
 
-    # Vytvor nový hovor (zapíš token len ak bol potrebný a nájdený)
+    # Vytvor nový hovor
     call = frappe.get_doc({
         "doctype": "Dennik hovorov",
         "volajuci": caller_name,
@@ -130,12 +133,12 @@ def start():
     caller_username = frappe.db.get_value(
         "Klient",
         {"clerk_id": caller_clerk},
-        "username"
+        "username",
     )
 
     # Pošleme VoIP push na všetky zariadenia poradcu
-    for d in devices:
-        token = d.get("voip_token")
+    for device in devices:
+        token = device.get("voip_token")
         if not token:
             continue
 
@@ -148,15 +151,19 @@ def start():
                     "callerName": caller_username or caller_clerk,
                     "title": "Prichádzajúci hovor",
                     "body": f"Volá {caller_username or caller_clerk}",
-                }
+                },
             )
         except Exception as e:
             frappe.log_error(
                 f"VoIP push failed for device {token}: {e}",
-                "BC VoIP Error"
+                "BC VoIP Error",
             )
 
-    return {"success": True, "callId": call.name, "tokenUsed": used_token}
+    return {
+        "success": True,
+        "callId": call.name,
+        "tokenUsed": used_token,
+    }
 
 
 # ----------------------------------------------------------------------
