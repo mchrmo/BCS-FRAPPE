@@ -228,6 +228,7 @@ def accept():
 @frappe.whitelist(methods=["POST"], allow_guest=True)
 def end():
     import math
+    import frappe
     from frappe.utils import now_datetime, getdate, get_time
     from datetime import datetime
 
@@ -245,10 +246,11 @@ def end():
     doc.koniec_datum = now.date()
     doc.koniec_cas = now.time().strftime("%H:%M:%S")
 
-    # Výpočet trvania
+    # ✅ Robustný výpočet trvania (funguje pre string aj time)
     try:
         start_date = getdate(doc.zaciatok_datum)
         start_time = get_time(doc.zaciatok_cas)
+
         end_date = getdate(doc.koniec_datum)
         end_time = get_time(doc.koniec_cas)
 
@@ -260,19 +262,23 @@ def end():
         frappe.log_error(f"Duration calc error: {e}", "BC Call Duration Error")
         doc.trvanie_s = doc.trvanie_s or 0
 
-    # Odrátanie minút z tokenu
+    # --- ODRÁTANIE MINÚT Z TOKENU (len ak sa použil token) ---
     try:
         should_deduct = bool(getattr(doc, "pouzity_token", None)) and (doc.trvanie_s or 0) > 0
 
+        # ak máš field "prijaty", odrátaj iba ak bol prijatý
         if hasattr(doc, "prijaty") and not getattr(doc, "prijaty"):
             should_deduct = False
 
+        # idempotencia: ak máš field minuty_pouzite a už je vyplnený, neodrátavaj znova
         if hasattr(doc, "minuty_pouzite") and (getattr(doc, "minuty_pouzite") or 0) > 0:
             should_deduct = False
 
         if should_deduct:
+            # Každých začatých 6 minút (360 sekúnd) sa počíta ako celý 6-minútový blok
             minutes_used = int(math.ceil((doc.trvanie_s or 0) / 360.0)) * 6
 
+            # zapíš minuty_pouzite ak existuje
             if hasattr(doc, "minuty_pouzite"):
                 doc.minuty_pouzite = minutes_used
 
@@ -282,39 +288,16 @@ def end():
             remaining_after = max(0, remaining - minutes_used)
 
             token_doc.minuty_ostavajuce = remaining_after
+
+            # tvoje options: active / listed / spent
             token_doc.stav = "spent" if remaining_after == 0 else "active"
+
             token_doc.save(ignore_permissions=True)
 
     except Exception as e:
         frappe.log_error(f"Token deduct error: {e}", "BC Token Deduct Error")
 
-    # Ulož hovor
     doc.save(ignore_permissions=True)
-
-    # --------------------------------------------------
-    # Google Calendar – update event
-    # IBA ak hovor NEPOUŽIL token
-    # --------------------------------------------------
-    if not doc.pouzity_token:
-        try:
-            from .google_calendar import update_call_event_end
-
-            caller_username = frappe.db.get_value(
-                "Klient",
-                {"name": doc.volajuci},
-                "username",
-            )
-
-            update_call_event_end(
-                doc,
-                caller_username or doc.volajuci,
-            )
-
-        except Exception as e:
-            frappe.log_error(
-                str(e),
-                "Google Calendar Update Event Error",
-            )
 
     return {
         "success": True,
@@ -325,6 +308,7 @@ def end():
         if hasattr(doc, "minuty_pouzite")
         else None,
     }
+
 
 # ----------------------------------------------------------------------
 # CALL HISTORY
