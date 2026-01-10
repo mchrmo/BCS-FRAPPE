@@ -241,9 +241,8 @@ def end():
             should_deduct = False
 
         if should_deduct:
-            # billing-friendly: zaokrúhli nahor (1 sekunda = 1 min)
-            minutes_used = int(math.ceil((doc.trvanie_s or 0) / 60.0))
-
+			# Každých začatých 6 minút (360 sekúnd) sa počíta ako celý 6-minútový blok
+			minutes_used = int(math.ceil((doc.trvanie_s or 0) / 360.0)) * 6
             # zapíš minuty_pouzite ak existuje
             if hasattr(doc, "minuty_pouzite"):
                 doc.minuty_pouzite = minutes_used
