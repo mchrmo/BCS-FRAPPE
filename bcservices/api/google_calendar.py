@@ -39,6 +39,63 @@ def get_calendar_service():
     return build("calendar", "v3", credentials=credentials)
 
 
+
+def update_call_event_end(call_doc, caller_username: str):
+    if not getattr(call_doc, "google_event_id", None):
+        return
+
+    service = get_calendar_service()
+
+    # presný začiatok
+    start_dt = datetime.combine(
+        call_doc.zaciatok_datum,
+        datetime.strptime(call_doc.zaciatok_cas, "%H:%M:%S").time(),
+    )
+
+    # presný koniec
+    end_dt = datetime.combine(
+        call_doc.koniec_datum,
+        datetime.strptime(call_doc.koniec_cas, "%H:%M:%S").time(),
+    )
+
+    duration_minutes = max(1, int((call_doc.trvanie_s or 0) / 60))
+
+    event = service.events().get(
+        calendarId=ADMIN_CALENDAR_ID,
+        eventId=call_doc.google_event_id,
+    ).execute()
+
+    # update názvu (nepovinné, ale pekné)
+    event["summary"] = (
+        f"Hovor – {call_doc.poradca} – {caller_username} "
+        f"({duration_minutes} min)"
+    )
+
+    # update popisu
+    event["description"] = (
+        f"Hovor medzi:\n"
+        f"Poradca: {call_doc.poradca}\n"
+        f"Volajúci: {caller_username}\n"
+        f"Trvanie: {duration_minutes} min\n\n"
+        f"Call ID: {call_doc.name}"
+    )
+
+    # update času
+    event["start"] = {
+        "dateTime": start_dt.isoformat(),
+        "timeZone": "Europe/Bratislava",
+    }
+    event["end"] = {
+        "dateTime": end_dt.isoformat(),
+        "timeZone": "Europe/Bratislava",
+    }
+
+    service.events().update(
+        calendarId=ADMIN_CALENDAR_ID,
+        eventId=call_doc.google_event_id,
+        body=event,
+    ).execute()
+
 # --------------------------------------------------
 # CREATE CALL EVENT
 # --------------------------------------------------
@@ -55,21 +112,23 @@ def create_call_event(call_doc, caller_username: str):
     end_dt = start_dt + timedelta(minutes=30)
 
     event = {
-        "summary": f"Hovor – {caller_username}",
-        "description": (
-            f"Call ID: {call_doc.name}\n"
-            f"Volajúci: {caller_username}\n"
-            f"Poradca: {call_doc.poradca}"
-        ),
-        "start": {
-            "dateTime": start_dt.isoformat(),
-            "timeZone": "Europe/Bratislava",
-        },
-        "end": {
-            "dateTime": end_dt.isoformat(),
-            "timeZone": "Europe/Bratislava",
-        },
-    }
+    "summary": f"Hovor – {call_doc.poradca} – {caller_username}",
+    "description": (
+        f"Hovor medzi:\n"
+        f"Poradca: {call_doc.poradca}\n"
+        f"Volajúci: {caller_username}\n\n"
+        f"Call ID: {call_doc.name}"
+    ),
+    "start": {
+        "dateTime": start_dt.isoformat(),
+        "timeZone": "Europe/Bratislava",
+    },
+    "end": {
+        "dateTime": end_dt.isoformat(),
+        "timeZone": "Europe/Bratislava",
+    },
+}
+
 
     created_event = (
         service.events()
