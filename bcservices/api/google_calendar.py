@@ -1,20 +1,47 @@
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
 import frappe
+import os
 from datetime import datetime, timedelta
 
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+
+# --------------------------------------------------
+# CONFIG
+# --------------------------------------------------
+
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
-SERVICE_ACCOUNT_FILE = (
-    frappe.get_site_path("private", "files", "google-calendar.json")
+
+# 🔑 PRESNÝ NÁZOV TVOJHO JSON SÚBORU
+SERVICE_ACCOUNT_FILE = frappe.get_site_path(
+    "private",
+    "files",
+    "summer-heaven-478513-q6-323b705c6baa.json",
 )
 
-ADMIN_CALENDAR_ID = "primary"  # adminov hlavný kalendár
+# Adminov Google kalendár
+ADMIN_CALENDAR_ID = "primary"  # môžeš dať aj email admin@gmail.com
+
+# --------------------------------------------------
+# HELPERS
+# --------------------------------------------------
 
 def get_calendar_service():
+    if not os.path.exists(SERVICE_ACCOUNT_FILE):
+        raise FileNotFoundError(
+            f"Google Calendar JSON not found: {SERVICE_ACCOUNT_FILE}"
+        )
+
     credentials = service_account.Credentials.from_service_account_file(
-        SERVICE_ACCOUNT_FILE, scopes=SCOPES
+        SERVICE_ACCOUNT_FILE,
+        scopes=SCOPES,
     )
+
     return build("calendar", "v3", credentials=credentials)
+
+
+# --------------------------------------------------
+# CREATE CALL EVENT
+# --------------------------------------------------
 
 def create_call_event(call_doc, caller_username: str):
     service = get_calendar_service()
@@ -24,7 +51,7 @@ def create_call_event(call_doc, caller_username: str):
         datetime.strptime(call_doc.zaciatok_cas, "%H:%M:%S").time(),
     )
 
-    # default 30 min (neskôr update pri end())
+    # default trvanie – 30 min (upraviš pri end())
     end_dt = start_dt + timedelta(minutes=30)
 
     event = {
@@ -44,10 +71,13 @@ def create_call_event(call_doc, caller_username: str):
         },
     }
 
-    created = (
+    created_event = (
         service.events()
-        .insert(calendarId=ADMIN_CALENDAR_ID, body=event)
+        .insert(
+            calendarId=ADMIN_CALENDAR_ID,
+            body=event,
+        )
         .execute()
     )
 
-    return created.get("id")
+    return created_event.get("id")
