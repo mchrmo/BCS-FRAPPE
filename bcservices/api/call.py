@@ -96,12 +96,11 @@ def start():
 
     # Token sa vyžaduje len v piatok a len keď volá klient (nie admin)
     token_required = is_friday(now) and caller_clerk != ADMIN_CLERK_ID
-
     used_token = None
+
     if token_required:
         used_token = pick_active_token_for_holder(caller_name)
         if not used_token:
-            # Vraciame success=False aby iOS vedel zobraziť hlášku
             return {
                 "success": False,
                 "error": (
@@ -110,18 +109,51 @@ def start():
                 ),
             }
 
+    # --------------------------------------------------
     # Vytvor nový hovor
+    # --------------------------------------------------
     call = frappe.get_doc({
         "doctype": "Dennik hovorov",
         "volajuci": caller_name,
         "poradca": advisor_name,
         "zaciatok_datum": now.date(),
         "zaciatok_cas": now.time().strftime("%H:%M:%S"),
-        "pouzity_token": used_token,  # môže byť None
+        "pouzity_token": used_token,
     })
     call.insert(ignore_permissions=True)
 
+    # --------------------------------------------------
+    # Google Calendar – vytvorenie eventu (SAFE)
+    # --------------------------------------------------
+    caller_username = frappe.db.get_value(
+        "Klient",
+        {"clerk_id": caller_clerk},
+        "username",
+    )
+
+    try:
+        from .google_calendar import create_call_event
+
+        event_id = create_call_event(
+            call,
+            caller_username or caller_clerk,
+        )
+
+        # uložíme len ak field existuje
+        if hasattr(call, "google_event_id"):
+            call.google_event_id = event_id
+            call.save(ignore_permissions=True)
+
+    except Exception as e:
+        # Call NESMIE spadnúť kvôli kalendáru
+        frappe.log_error(
+            message=str(e),
+            title="Google Calendar Create Event Error",
+        )
+
+    # --------------------------------------------------
     # Nájdeme všetky zariadenia poradcu (multi-device)
+    # --------------------------------------------------
     devices = frappe.get_all(
         "Zariadenie",
         filters={"parent": advisor_name},
@@ -129,14 +161,9 @@ def start():
         limit_page_length=20,
     )
 
-    # Username podľa Doctype Klient
-    caller_username = frappe.db.get_value(
-        "Klient",
-        {"clerk_id": caller_clerk},
-        "username",
-    )
-
+    # --------------------------------------------------
     # Pošleme VoIP push na všetky zariadenia poradcu
+    # --------------------------------------------------
     for device in devices:
         token = device.get("voip_token")
         if not token:
