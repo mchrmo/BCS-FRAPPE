@@ -123,7 +123,8 @@ def start():
     call.insert(ignore_permissions=True)
 
     # --------------------------------------------------
-    # Google Calendar – vytvorenie eventu (SAFE)
+    # Google Calendar – vytvorenie eventu
+    # IBA ak hovor NEPOUŽIL token
     # --------------------------------------------------
     caller_username = frappe.db.get_value(
         "Klient",
@@ -131,25 +132,24 @@ def start():
         "username",
     )
 
-    try:
-        from .google_calendar import create_call_event
+    if not used_token:
+        try:
+            from .google_calendar import create_call_event
 
-        event_id = create_call_event(
-            call,
-            caller_username or caller_clerk,
-        )
+            event_id = create_call_event(
+                call,
+                caller_username or caller_clerk,
+            )
 
-        # uložíme len ak field existuje
-        if hasattr(call, "google_event_id"):
-            call.google_event_id = event_id
-            call.save(ignore_permissions=True)
+            if hasattr(call, "google_event_id"):
+                call.google_event_id = event_id
+                call.save(ignore_permissions=True)
 
-    except Exception as e:
-        # Call NESMIE spadnúť kvôli kalendáru
-        frappe.log_error(
-            message=str(e),
-            title="Google Calendar Create Event Error",
-        )
+        except Exception as e:
+            frappe.log_error(
+                str(e),
+                "Google Calendar Create Event Error",
+            )
 
     # --------------------------------------------------
     # Nájdeme všetky zariadenia poradcu (multi-device)
@@ -228,7 +228,6 @@ def accept():
 @frappe.whitelist(methods=["POST"], allow_guest=True)
 def end():
     import math
-    import frappe
     from frappe.utils import now_datetime, getdate, get_time
     from datetime import datetime
 
@@ -293,27 +292,29 @@ def end():
     doc.save(ignore_permissions=True)
 
     # --------------------------------------------------
-    # Google Calendar – update event po ukončení hovoru
+    # Google Calendar – update event
+    # IBA ak hovor NEPOUŽIL token
     # --------------------------------------------------
-    try:
-        from .google_calendar import update_call_event_end
+    if not doc.pouzity_token:
+        try:
+            from .google_calendar import update_call_event_end
 
-        caller_username = frappe.db.get_value(
-            "Klient",
-            {"name": doc.volajuci},
-            "username",
-        )
+            caller_username = frappe.db.get_value(
+                "Klient",
+                {"name": doc.volajuci},
+                "username",
+            )
 
-        update_call_event_end(
-            doc,
-            caller_username or doc.volajuci,
-        )
+            update_call_event_end(
+                doc,
+                caller_username or doc.volajuci,
+            )
 
-    except Exception as e:
-        frappe.log_error(
-            str(e),
-            "Google Calendar Update Event Error",
-        )
+        except Exception as e:
+            frappe.log_error(
+                str(e),
+                "Google Calendar Update Event Error",
+            )
 
     return {
         "success": True,
