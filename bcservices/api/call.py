@@ -101,24 +101,54 @@ def start():
     if token_required:
         used_token = pick_active_token_for_holder(caller_name)
         if not used_token:
-            # Vraciame "success": False aby iOS vedel zobraziť hlášku
             return {
                 "success": False,
                 "error": "V piatok je na hovor potrebný token (minúty). Nemáš žiadne zostávajúce minúty."
             }
 
-    # Vytvor nový hovor (zapíš token len ak bol potrebný a nájdený)
+    # Vytvor nový hovor
     call = frappe.get_doc({
         "doctype": "Dennik hovorov",
         "volajuci": caller_name,
         "poradca": advisor_name,
         "zaciatok_datum": now.date(),
         "zaciatok_cas": now.time().strftime("%H:%M:%S"),
-        "pouzity_token": used_token,  # môže byť None
+        "pouzity_token": used_token,
     })
     call.insert(ignore_permissions=True)
 
-    # Nájdeme všetky zariadenia poradcu (multi-device)
+    # --- NOVINKA: ZÁPIS DO GOOGLE KALENDÁRA ---
+    # Udalosť vytvárame len vtedy, ak sa hovor účtuje (nie je na token / piatok)
+    if not used_token:
+        try:
+            # Získame User ID priradené k poradcovi v poli 'user'
+            advisor_user = frappe.db.get_value("Klient", advisor_name, "user")
+            
+            if advisor_user:
+                from datetime import timedelta
+                caller_username = frappe.db.get_value("Klient", caller_name, "username")
+                
+                # Vytvoríme systémový Event
+                event = frappe.get_doc({
+                    "doctype": "Event",
+                    "subject": f"Hovor: {caller_username or caller_name}",
+                    "description": f"Automatický záznam prichádzajúceho hovoru.\nKlient: {caller_name}",
+                    "starts_on": now,
+                    "ends_on": now + timedelta(minutes=15),
+                    "event_type": "Private",
+                    "owner": advisor_user,
+                    "sync_with_google_calendar": 1
+                })
+                event.insert(ignore_permissions=True)
+                
+                # Spustíme sync hneď, aby poradca videl event v mobile okamžite
+                from frappe.integrations.doctype.google_calendar.google_calendar import sync
+                frappe.enqueue(sync, calendar_name=advisor_user)
+        except Exception as e:
+            # Chyba kalendára nesmie zastaviť hovor
+            frappe.log_error(f"Calendar Sync Error: {e}", "BC Call API")
+
+    # Nájdeme všetky zariadenia poradcu
     devices = frappe.get_all(
         "Zariadenie",
         filters={"parent": advisor_name},
@@ -126,14 +156,13 @@ def start():
         limit_page_length=20,
     )
 
-    # Username podľa Doctype Klient
     caller_username = frappe.db.get_value(
         "Klient",
         {"clerk_id": caller_clerk},
         "username"
     )
 
-    # Pošleme VoIP push na všetky zariadenia poradcu
+    # Pošleme VoIP push
     for d in devices:
         token = d.get("voip_token")
         if not token:
