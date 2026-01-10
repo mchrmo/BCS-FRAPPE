@@ -298,6 +298,30 @@ def end():
         frappe.log_error(f"Token deduct error: {e}", "BC Token Deduct Error")
 
     doc.save(ignore_permissions=True)
+	# --------------------------------------------------
+# Google Calendar – update event po ukončení hovoru
+# --------------------------------------------------
+try:
+    from .google_calendar import update_call_event_end
+
+    # username volajúceho (rovnako ako v start())
+    caller_username = frappe.db.get_value(
+        "Klient",
+        {"name": doc.volajuci},
+        "username",
+    )
+
+    update_call_event_end(
+        doc,
+        caller_username or doc.volajuci,
+    )
+
+except Exception as e:
+    frappe.log_error(
+        str(e),
+        "Google Calendar Update Event Error",
+    )
+
 
     return {
         "success": True,
