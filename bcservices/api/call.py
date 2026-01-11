@@ -171,15 +171,15 @@ def start():
 
         try:
             send_voip_push(
-                token,
-                {
-                    "callId": call.name,
-                    "callerId": caller_clerk,
-                    "callerName": caller_username or caller_clerk,
-                    "title": "Prichádzajúci hovor",
-                    "body": f"Volá {caller_username or caller_clerk}",
-                },
-            )
+			    token,
+			    {
+			        "callId": call.name,
+			        "callerId": caller_clerk,
+			        "callerName": caller_name,   # ✅ JEDINÝ ZDROJ PRAVDY
+			        "title": "Prichádzajúci hovor",
+			        "body": f"Volá {caller_name}",
+			    },
+			)
         except Exception as e:
             frappe.log_error(
                 f"VoIP push failed for device {token}: {e}",
