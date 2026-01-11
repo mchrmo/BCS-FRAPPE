@@ -26,7 +26,7 @@ def get_klient_name_from_clerk(clerk_id: str | None):
 
 def is_friday(dt) -> bool:
     # Python: Monday=0 ... Sunday=6
-    return dt.weekday() == 1
+    return dt.weekday() == 4
 
 
 def pick_active_token_for_holder(klient_name: str) -> str | None:
