@@ -37,34 +37,33 @@ def call_logs(userId: str = None):
     if not userId:
         frappe.throw("Missing userId", frappe.ValidationError)
 
-    # Nájdi Klienta podľa Clerk ID
-    user_doc = frappe.get_all(
-        "Klient",
-        filters={"clerk_id": userId},
-        limit=1
-    )
-
-    if not user_doc:
+    # nájdi klienta podľa Clerk ID
+    bc_user = frappe.db.get_value("Klient", {"clerk_id": userId}, "name")
+    if not bc_user:
         return {"success": True, "items": []}
 
-    bc_user = user_doc[0].name
-
-    # Načítaj hovory (používame interné názvy polí podľa Frappe štandardu)
-    # Ak máš polia pomenované inak (napr. s diakritikou), uprav názvy v 'fields'
     logs = frappe.get_all(
         "Dennik hovorov",
-        filters={"volajuci": bc_user},
-        fields=[
-            "name", 
-            "zaciatok_datum", 
-            "koniec_datum", 
-            "trvanie_s", 
-            "pouzity_token"
+        or_filters=[
+            {"volajuci": bc_user},
+            {"poradca": bc_user},
         ],
-        order_by="zaciatok_datum desc"
+        fields=[
+            "name",
+            "volajuci",
+            "poradca",
+            "zaciatok_datum",
+            "zaciatok_cas",
+            "koniec_datum",
+            "koniec_cas",
+            "trvanie_s",
+            "pouzity_token",
+        ],
+        order_by="zaciatok_datum desc, zaciatok_cas desc"
     )
 
     return {"success": True, "items": logs}
+
 
 @frappe.whitelist(methods=["GET"], allow_guest=True)
 def history(userId: str = None):
