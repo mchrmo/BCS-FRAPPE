@@ -1,42 +1,29 @@
-# apps/bcservices/bcservices/api/call.py
-
 import math
 import frappe
 from frappe.utils import now_datetime, getdate, get_time
 from datetime import datetime
-
+from frappe import _
 
 from .utils import verify_clerk_bearer_and_get_sub, send_voip_push
 
+# ----------------------------------------------------------------------
+# POMOCNÉ FUNKCIE (Načítanie z Nastavení a DB)
+# ----------------------------------------------------------------------
+def get_settings():
+    """Načíta dokument Nastavenie (Single DocType)"""
+    return frappe.get_single("Nastavenie")
 
-# ----------------------------------------------------------------------
-# CONFIG
-# ----------------------------------------------------------------------
-ADMIN_CLERK_ID = "user_30p94nuw9O2UHOEsXmDhV2SgP8N"  # tvoj admin Clerk ID
-
-
-# ----------------------------------------------------------------------
-# HELPERS
-# ----------------------------------------------------------------------
 def get_klient_name_from_clerk(clerk_id: str | None):
     if not clerk_id:
         return None
     return frappe.db.get_value("Klient", {"clerk_id": clerk_id}, "name")
 
-
 def is_friday(dt) -> bool:
-    # Python: Monday=0 ... Sunday=6
+    # Python: Monday=0 ... Sunday=6. Piatok je 4.
     return dt.weekday() == 4
 
-
 def pick_active_token_for_holder(klient_name: str) -> str | None:
-    """
-    Vyberie 1 token pre klienta, ktorý je:
-      - aktualny_drzitel = klient_name
-      - stav = "active"
-      - minuty_ostavajuce > 0
-    Vracia Token.name alebo None.
-    """
+    """Vyberie jeden aktívny token pre daného klienta."""
     rows = frappe.get_all(
         "Token",
         filters={
@@ -44,33 +31,22 @@ def pick_active_token_for_holder(klient_name: str) -> str | None:
             "stav": "active",
             "minuty_ostavajuce": [">", 0],
         },
-        fields=["name", "minuty_ostavajuce", "modified"],
+        fields=["name"],
         order_by="modified asc",
         limit_page_length=1,
     )
-    if not rows:
-        return None
-    return rows[0]["name"]
-
+    return rows[0]["name"] if rows else None
 
 # ----------------------------------------------------------------------
 # START CALL
 # ----------------------------------------------------------------------
-# ----------------------------------------------------------------------
-# START CALL
-# ----------------------------------------------------------------------
-import frappe
-from frappe.utils import now_datetime
-from frappe import _
-
-ADMIN_CLERK_ID = "ADMIN_CLERK_ID_HERE"
-
-
 @frappe.whitelist(methods=["POST"], allow_guest=True)
 def start():
-    # --------------------------------------------------
+    # Načítanie dynamických nastavení z Frappe
+    settings = get_settings()
+    admin_id = settings.admin_clerk_id
+
     # 1. Overenie Clerk JWT
-    # --------------------------------------------------
     clerk_id, _ = verify_clerk_bearer_and_get_sub()
 
     data = frappe.local.form_dict or {}
@@ -80,39 +56,30 @@ def start():
     if not caller_clerk or not advisor_clerk:
         frappe.throw(_("Missing callerId or advisorId"))
 
-    # Bezpečnosť: user môže štartovať call iba za seba (alebo admin)
-    if clerk_id != caller_clerk and clerk_id != ADMIN_CLERK_ID:
+    # Bezpečnosť: užívateľ môže začať hovor len za seba, alebo ak je admin
+    if clerk_id != caller_clerk and clerk_id != admin_id:
         frappe.throw(_("Forbidden"), frappe.PermissionError)
 
-    # Mapovanie "admin" na reálne Clerk ID
+    # Mapovanie skratky "admin" na reálne ID z Nastavení
     if advisor_clerk == "admin":
-        advisor_clerk = ADMIN_CLERK_ID
+        advisor_clerk = admin_id
 
-    # --------------------------------------------------
-    # 2. Lookup Klient.name
-    # --------------------------------------------------
+    # 2. Lookup mien účastníkov
     caller_name = get_klient_name_from_clerk(caller_clerk)
     advisor_name = get_klient_name_from_clerk(advisor_clerk)
 
     if not caller_name or not advisor_name:
-        frappe.throw(_("Could not find caller or advisor in Klient database"))
+        frappe.throw(_("Could not find participants in Klient database"))
 
-    # --------------------------------------------------
-    # 3. INTELIGENTNÝ LOOKUP ZNAČKY (Admin vs Klient)
-    # --------------------------------------------------
-    # Získame značky pre oboch účastníkov
-    znacka_volajuci = frappe.db.get_value("Klient", {"clerk_id": caller_clerk}, "znacka_klienta")
-    znacka_poradca = frappe.db.get_value("Klient", {"clerk_id": advisor_clerk}, "znacka_klienta")
-
-    # Vyberieme tú značku, ktorá nie je prázdna (vždy to bude značka klienta, keďže admin nemá žiadnu)
-    finalna_znacka = znacka_volajuci or znacka_poradca
+    # 3. Zistenie značky klienta (obojsmerne)
+    zn_caller = frappe.db.get_value("Klient", {"clerk_id": caller_clerk}, "znacka_klienta")
+    zn_advisor = frappe.db.get_value("Klient", {"clerk_id": advisor_clerk}, "znacka_klienta")
+    finalna_znacka = zn_caller or zn_advisor
 
     now = now_datetime()
 
-    # --------------------------------------------------
-    # 4. Token logika (len piatok, len klient)
-    # --------------------------------------------------
-    token_required = is_friday(now) and caller_clerk != ADMIN_CLERK_ID
+    # 4. Logika Tokenov (Piatok)
+    token_required = is_friday(now) and caller_clerk != admin_id
     used_token = None
 
     if token_required:
@@ -120,12 +87,10 @@ def start():
         if not used_token:
             return {
                 "success": False,
-                "error": "V piatok je na hovor potrebný token. Nemáš minúty."
+                "error": "V piatok je potrebný token. Nemáte dostupné minúty."
             }
 
-    # --------------------------------------------------
-    # 5. Vytvorenie hovoru
-    # --------------------------------------------------
+    # 5. Vytvorenie hovoru v DB
     call = frappe.get_doc({
         "doctype": "Dennik hovorov",
         "volajuci": caller_name,
@@ -136,33 +101,22 @@ def start():
     })
     call.insert(ignore_permissions=True)
 
-    # --------------------------------------------------
-    # 6. Google Calendar – IBA ak existuje značka a nepoužil sa token
-    # --------------------------------------------------
+    # 6. Google Calendar (iba ak existuje značka a nie je to hovor na token)
     if not used_token and finalna_znacka:
         try:
             from .google_calendar import create_call_event
+            event_id = create_call_event(call, finalna_znacka)
+            if event_id:
+                call.google_event_id = event_id
+                call.save(ignore_permissions=True)
+        except Exception:
+            frappe.log_error(frappe.get_traceback(), "Google Calendar Start Error")
 
-            # Do kalendára posielame nájdenú značku klienta
-            event_id = create_call_event(
-                call,
-                finalna_znacka
-            )
-
-            call.google_event_id = event_id
-            call.save(ignore_permissions=True)
-
-        except Exception as e:
-            frappe.log_error(frappe.get_traceback(), "Google Calendar Create Event Error")
-
-    # --------------------------------------------------
-    # 7. VoIP push na zariadenia poradcu
-    # --------------------------------------------------
+    # 7. VoIP Push notifikácie
     devices = frappe.get_all(
         "Zariadenie",
         filters={"parent": advisor_name},
-        fields=["voip_token"],
-        limit_page_length=20,
+        fields=["voip_token"]
     )
 
     for device in devices:
@@ -179,13 +133,7 @@ def start():
             except Exception:
                 pass
 
-    return {
-        "success": True,
-        "callId": call.name,
-        "tokenUsed": used_token,
-    }
-
-
+    return {"success": True, "callId": call.name, "tokenUsed": used_token}
 
 # ----------------------------------------------------------------------
 # ACCEPT CALL
@@ -194,150 +142,79 @@ def start():
 def accept():
     clerk_id, _ = verify_clerk_bearer_and_get_sub()
     data = frappe.local.form_dict or {}
-
     call_id = data.get("callId")
+
     if not call_id:
         frappe.throw("Missing callId")
 
     doc = frappe.get_doc("Dennik hovorov", call_id)
+    user_name = get_klient_name_from_clerk(clerk_id)
 
-    advisor_name = get_klient_name_from_clerk(clerk_id)
-    if doc.poradca != advisor_name:
-        frappe.throw("You cannot accept someone else's call", frappe.PermissionError)
+    if doc.poradca != user_name:
+        frappe.throw("Unauthorized", frappe.PermissionError)
 
-    # Označ, že hovor bol prijatý (ak field existuje)
     now = now_datetime()
-    if hasattr(doc, "prijaty"):
-        doc.prijaty = 1
-    if hasattr(doc, "prijaty_cas"):
-        doc.prijaty_cas = now
-
+    doc.prijaty = 1
+    doc.prijaty_cas = now
     doc.save(ignore_permissions=True)
+
     return {"success": True, "callId": call_id}
 
 # ----------------------------------------------------------------------
 # END CALL
 # ----------------------------------------------------------------------
-import math
-import frappe
-from frappe.utils import now_datetime, getdate, get_time
-from datetime import datetime
-
-
 @frappe.whitelist(methods=["POST"], allow_guest=True)
 def end():
-    # --------------------------------------------------
-    # Overenie Clerk JWT
-    # --------------------------------------------------
     clerk_id, _ = verify_clerk_bearer_and_get_sub()
-
     data = frappe.local.form_dict or {}
     call_id = data.get("callId")
 
     if not call_id:
         frappe.throw("Missing callId")
 
-    # --------------------------------------------------
-    # Načítanie hovoru
-    # --------------------------------------------------
     doc = frappe.get_doc("Dennik hovorov", call_id)
-
     now = now_datetime()
 
-    # --------------------------------------------------
-    # Uloženie ukončenia hovoru
-    # --------------------------------------------------
     doc.koniec_datum = now.date()
     doc.koniec_cas = now.time().strftime("%H:%M:%S")
 
-    # --------------------------------------------------
-    # Robustný výpočet trvania (string / time safe)
-    # --------------------------------------------------
+    # Výpočet trvania
     try:
-        start_date = getdate(doc.zaciatok_datum)
-        start_time = get_time(doc.zaciatok_cas)
-
-        end_date = getdate(doc.koniec_datum)
-        end_time = get_time(doc.koniec_cas)
-
-        start_dt = datetime.combine(start_date, start_time)
-        end_dt = datetime.combine(end_date, end_time)
-
+        start_dt = datetime.combine(getdate(doc.zaciatok_datum), get_time(doc.zaciatok_cas))
+        end_dt = datetime.combine(getdate(doc.koniec_datum), get_time(doc.koniec_cas))
         doc.trvanie_s = max(0, int((end_dt - start_dt).total_seconds()))
+    except Exception:
+        doc.trvanie_s = 0
 
-    except Exception as e:
-        frappe.log_error(
-            f"Duration calc error: {e}",
-            "BC Call Duration Error",
-        )
-        doc.trvanie_s = doc.trvanie_s or 0
-
-    # --------------------------------------------------
-    # ODRÁTANIE MINÚT Z TOKENU (len ak sa použil)
-    # --------------------------------------------------
-    try:
-        should_deduct = (
-            bool(getattr(doc, "pouzity_token", None))
-            and (doc.trvanie_s or 0) > 0
-        )
-
-        # Ak máš field "prijaty", odrátaj len ak bol prijatý
-        if hasattr(doc, "prijaty") and not getattr(doc, "prijaty"):
-            should_deduct = False
-
-        # Idempotencia – ak už boli minúty odrátané
-        if (
-            hasattr(doc, "minuty_pouzite")
-            and (getattr(doc, "minuty_pouzite") or 0) > 0
-        ):
-            should_deduct = False
-
-        if should_deduct:
-            # Každých začatých 6 minút = celý 6-min blok
-            minutes_used = (
-                int(math.ceil((doc.trvanie_s or 0) / 360.0)) * 6
-            )
-
-            if hasattr(doc, "minuty_pouzite"):
-                doc.minuty_pouzite = minutes_used
+    # Logika odrátania tokenov
+    if doc.pouzity_token and doc.trvanie_s > 0 and getattr(doc, "prijaty", 0):
+        try:
+            # 6-minútové bloky
+            minutes_to_deduct = int(math.ceil(doc.trvanie_s / 360.0)) * 6
+            doc.minuty_pouzite = minutes_to_deduct
 
             token_doc = frappe.get_doc("Token", doc.pouzity_token)
-
-            remaining = int(token_doc.minuty_ostavajuce or 0)
-            remaining_after = max(0, remaining - minutes_used)
-
-            token_doc.minuty_ostavajuce = remaining_after
-            token_doc.stav = (
-                "spent" if remaining_after == 0 else "active"
-            )
-
+            remaining = max(0, int(token_doc.minuty_ostavajuce or 0) - minutes_to_deduct)
+            token_doc.minuty_ostavajuce = remaining
+            token_doc.stav = "spent" if remaining == 0 else "active"
             token_doc.save(ignore_permissions=True)
+        except Exception:
+            frappe.log_error(frappe.get_traceback(), "Token Deduction Error")
 
-    except Exception as e:
-        frappe.log_error(
-            f"Token deduct error: {e}",
-            "BC Token Deduct Error",
-        )
-
-    # --------------------------------------------------
-    # Uloženie hovoru
-    # --------------------------------------------------
     doc.save(ignore_permissions=True)
 
-    return {
-        "success": True,
-        "callId": call_id,
-        "duration_s": doc.trvanie_s,
-        "token": getattr(doc, "pouzity_token", None),
-        "minutes_deducted": (
-            getattr(doc, "minuty_pouzite", None)
-            if hasattr(doc, "minuty_pouzite")
-            else None
-        ),
-    }
+    # Aktualizácia kalendára pri ukončení
+    if doc.google_event_id:
+        try:
+            # Opäť zistíme značku pre summary
+            zn_v = frappe.db.get_value("Klient", {"name": doc.volajuci}, "znacka_klienta")
+            zn_p = frappe.db.get_value("Klient", {"name": doc.poradca}, "znacka_klienta")
+            from .google_calendar import update_call_event_end
+            update_call_event_end(doc, zn_v or zn_p)
+        except Exception:
+            pass
 
-
-
+    return {"success": True, "callId": call_id, "duration_s": doc.trvanie_s}
 
 # ----------------------------------------------------------------------
 # CALL HISTORY
@@ -345,8 +222,9 @@ def end():
 @frappe.whitelist(methods=["GET"], allow_guest=True)
 def history(userId: str):
     clerk_id, _ = verify_clerk_bearer_and_get_sub()
+    settings = get_settings()
 
-    if clerk_id != userId:
+    if clerk_id != userId and clerk_id != settings.admin_clerk_id:
         frappe.throw("Forbidden", frappe.PermissionError)
 
     klient_name = get_klient_name_from_clerk(userId)
@@ -354,16 +232,7 @@ def history(userId: str):
     calls = frappe.get_all(
         "Dennik hovorov",
         filters={"volajuci": klient_name},
-        fields=[
-            "name",
-            "poradca",
-            "zaciatok_datum",
-            "zaciatok_cas",
-            "koniec_datum",
-            "koniec_cas",
-            "trvanie_s",
-            "pouzity_token",
-        ],
+        fields=["name", "poradca", "zaciatok_datum", "zaciatok_cas", "trvanie_s", "pouzity_token"],
         order_by="zaciatok_datum desc, zaciatok_cas desc",
     )
 
