@@ -196,13 +196,6 @@ def accept():
     doc.save(ignore_permissions=True)
     return {"success": True, "callId": call_id}
 
-
-# ----------------------------------------------------------------------
-# END CALL
-# ----------------------------------------------------------------------
-# ----------------------------------------------------------------------
-# END CALL
-# ----------------------------------------------------------------------
 # ----------------------------------------------------------------------
 # END CALL
 # ----------------------------------------------------------------------
@@ -246,7 +239,7 @@ def end():
         )
 
         doc.trvanie_s = max(0, int((end_dt - start_dt).total_seconds()))
-    except Exception as e:
+    except Exception:
         frappe.log_error(
             frappe.get_traceback(),
             "BC CALL DURATION ERROR",
@@ -262,11 +255,9 @@ def end():
             and (doc.trvanie_s or 0) > 0
         )
 
-        # iba ak bol prijatý
-        if hasattr(doc, "prijaty") and not getattr(doc, "prijaty"):
+        if hasattr(doc, "prijaty") and not doc.prijaty:
             should_deduct = False
 
-        # idempotencia
         if hasattr(doc, "minuty_pouzite") and (doc.minuty_pouzite or 0) > 0:
             should_deduct = False
 
@@ -298,21 +289,16 @@ def end():
     # GOOGLE CALENDAR – VYTVORENIE EVENTU
     # --------------------------------------------------
     try:
-        frappe.log_error(
-            f"[CALENDAR CHECK] token={doc.pouzity_token}, trvanie={doc.trvanie_s}",
-            "DEBUG CALENDAR PRECHECK",
-        )
-
+        # podmienky:
+        # - nepoužitý token
+        # - trvanie > 0
         if not doc.pouzity_token and (doc.trvanie_s or 0) > 0:
+
+            # 🔑 SPRÁVNE: volajuci = Klient.name
             znacka_klienta = frappe.db.get_value(
                 "Klient",
                 doc.volajuci,
                 "znacka_klienta",
-            )
-
-            frappe.log_error(
-                f"[CALENDAR CHECK] znacka_klienta={znacka_klienta}",
-                "DEBUG CALENDAR BRAND",
             )
 
             if znacka_klienta:
@@ -327,11 +313,6 @@ def end():
 
                 if hasattr(doc, "google_event_id"):
                     doc.google_event_id = event_id
-
-                frappe.log_error(
-                    f"[CALENDAR CREATED] event_id={event_id}",
-                    "DEBUG CALENDAR SUCCESS",
-                )
 
     except Exception:
         frappe.log_error(
