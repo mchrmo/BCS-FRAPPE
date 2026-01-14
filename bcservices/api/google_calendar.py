@@ -5,31 +5,40 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
 # --------------------------------------------------
-# CONFIG
+# CONFIG (Načítavaný z DocTypu Nastavenie)
 # --------------------------------------------------
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
-
-SERVICE_ACCOUNT_FILE = frappe.get_site_path(
-    "private",
-    "files",
-    "summer-heaven-478513-q6-323b705c6baa.json",
-)
-
-ADMIN_CALENDAR_ID = "andrej.cernak2007@gmail.com"
 ADMIN_DISPLAY_NAME = "Admin"
 
+def get_settings():
+    """Pomocná funkcia na získanie hodnôt z Nastavenia"""
+    return frappe.get_single("Nastavenie")
 
 # --------------------------------------------------
 # HELPERS
 # --------------------------------------------------
 def get_calendar_service():
-    if not os.path.exists(SERVICE_ACCOUNT_FILE):
-        raise FileNotFoundError(
-            f"Google Calendar JSON not found: {SERVICE_ACCOUNT_FILE}"
-        )
+    settings = get_settings()
+    
+    # Získame cestu k súboru z poľa Attach
+    json_file_path = settings.google_json_file
+    
+    if not json_file_path:
+        frappe.throw("V nastaveniach chýba Google JSON súbor.")
+
+    # Prevod relatívnej cesty (/files/...) na absolútnu cestu na serveri
+    absolute_path = frappe.get_site_path(json_file_path.strip("/"))
+    
+    # Ak by súbor nebol nájdený cez relatívnu cestu, skúsime ju vybudovať manuálne
+    if not os.path.exists(absolute_path):
+        # Štandardné Frappe ukladanie: public/files/ alebo private/files/
+        absolute_path = frappe.get_public_path(json_file_path.strip("/"))
+
+    if not os.path.exists(absolute_path):
+        raise FileNotFoundError(f"Google Calendar JSON súbor nebol nájdený na ceste: {absolute_path}")
 
     credentials = service_account.Credentials.from_service_account_file(
-        SERVICE_ACCOUNT_FILE,
+        absolute_path,
         scopes=SCOPES,
     )
 
@@ -40,19 +49,18 @@ def get_calendar_service():
 # CREATE CALL EVENT
 # --------------------------------------------------
 def create_call_event(call_doc, display_title: str):
-    """
-    Vytvorí udalosť v kalendári. 
-    display_title je hodnota z pola 'znacka_klienta'.
-    """
     service = get_calendar_service()
+    settings = get_settings()
+    
+    calendar_id = settings.google_calendar_id
+    if not calendar_id:
+        frappe.throw("V nastaveniach chýba Google Calendar ID (Email).")
 
-    # Prevod času zo stringu na datetime objekt
     start_dt = datetime.combine(
         call_doc.zaciatok_datum,
         datetime.strptime(call_doc.zaciatok_cas, "%H:%M:%S").time(),
     )
 
-    # Predvolená dĺžka v kalendári (30 minút)
     end_dt = start_dt + timedelta(minutes=30)
 
     event = {
@@ -76,7 +84,7 @@ def create_call_event(call_doc, display_title: str):
     created_event = (
         service.events()
         .insert(
-            calendarId=ADMIN_CALENDAR_ID,
+            calendarId=calendar_id, # Použité ID z nastavení
             body=event,
         )
         .execute()
@@ -84,18 +92,16 @@ def create_call_event(call_doc, display_title: str):
 
     return created_event.get("id")
 
-
 # --------------------------------------------------
-# UPDATE CALL EVENT END (Volá sa pri ukončení hovoru)
+# UPDATE CALL EVENT END
 # --------------------------------------------------
 def update_call_event_end(call_doc, display_title: str):
-    """
-    Aktualizuje udalosť po skončení hovoru (reálny čas a trvanie).
-    """
     if not getattr(call_doc, "google_event_id", None):
         return
 
     service = get_calendar_service()
+    settings = get_settings()
+    calendar_id = settings.google_calendar_id
 
     start_dt = datetime.combine(
         call_doc.zaciatok_datum,
@@ -111,15 +117,11 @@ def update_call_event_end(call_doc, display_title: str):
 
     try:
         event = service.events().get(
-            calendarId=ADMIN_CALENDAR_ID,
+            calendarId=calendar_id, # Použité ID z nastavení
             eventId=call_doc.google_event_id,
         ).execute()
 
-        # Aktualizujeme summary so značkou a reálnym trvaním
-        event["summary"] = (
-            f"Hovor – {display_title} ({duration_minutes} min)"
-        )
-
+        event["summary"] = f"Hovor – {display_title} ({duration_minutes} min)"
         event["description"] = (
             f"Dokončený hovor\n"
             f"Značka klienta: {display_title}\n"
@@ -128,18 +130,11 @@ def update_call_event_end(call_doc, display_title: str):
             f"Call ID: {call_doc.name}"
         )
 
-        event["start"] = {
-            "dateTime": start_dt.isoformat(),
-            "timeZone": "Europe/Bratislava",
-        }
-
-        event["end"] = {
-            "dateTime": end_dt.isoformat(),
-            "timeZone": "Europe/Bratislava",
-        }
+        event["start"] = {"dateTime": start_dt.isoformat(), "timeZone": "Europe/Bratislava"}
+        event["end"] = {"dateTime": end_dt.isoformat(), "timeZone": "Europe/Bratislava"}
 
         service.events().update(
-            calendarId=ADMIN_CALENDAR_ID,
+            calendarId=calendar_id, # Použité ID z nastavení
             eventId=call_doc.google_event_id,
             body=event,
         ).execute()
