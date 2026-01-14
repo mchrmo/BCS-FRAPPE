@@ -4,7 +4,6 @@ from datetime import datetime, timedelta
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
-
 # --------------------------------------------------
 # CONFIG
 # --------------------------------------------------
@@ -40,22 +39,28 @@ def get_calendar_service():
 # --------------------------------------------------
 # CREATE CALL EVENT
 # --------------------------------------------------
-def create_call_event(call_doc, caller_username: str):
+def create_call_event(call_doc, display_title: str):
+    """
+    Vytvorí udalosť v kalendári. 
+    display_title je hodnota z pola 'znacka_klienta'.
+    """
     service = get_calendar_service()
 
+    # Prevod času zo stringu na datetime objekt
     start_dt = datetime.combine(
         call_doc.zaciatok_datum,
         datetime.strptime(call_doc.zaciatok_cas, "%H:%M:%S").time(),
     )
 
+    # Predvolená dĺžka v kalendári (30 minút)
     end_dt = start_dt + timedelta(minutes=30)
 
     event = {
-        "summary": f"Hovor – {ADMIN_DISPLAY_NAME} – {caller_username}",
+        "summary": f"Hovor – {display_title}",
         "description": (
-            f"Hovor medzi:\n"
-            f"Poradca: {ADMIN_DISPLAY_NAME}\n"
-            f"Volajúci: {caller_username}\n\n"
+            f"Hovor cez aplikáciu\n"
+            f"Značka klienta: {display_title}\n"
+            f"Poradca: {ADMIN_DISPLAY_NAME}\n\n"
             f"Call ID: {call_doc.name}"
         ),
         "start": {
@@ -81,9 +86,12 @@ def create_call_event(call_doc, caller_username: str):
 
 
 # --------------------------------------------------
-# UPDATE CALL EVENT END
+# UPDATE CALL EVENT END (Volá sa pri ukončení hovoru)
 # --------------------------------------------------
-def update_call_event_end(call_doc, caller_username: str):
+def update_call_event_end(call_doc, display_title: str):
+    """
+    Aktualizuje udalosť po skončení hovoru (reálny čas a trvanie).
+    """
     if not getattr(call_doc, "google_event_id", None):
         return
 
@@ -101,36 +109,40 @@ def update_call_event_end(call_doc, caller_username: str):
 
     duration_minutes = max(1, int((call_doc.trvanie_s or 0) / 60))
 
-    event = service.events().get(
-        calendarId=ADMIN_CALENDAR_ID,
-        eventId=call_doc.google_event_id,
-    ).execute()
+    try:
+        event = service.events().get(
+            calendarId=ADMIN_CALENDAR_ID,
+            eventId=call_doc.google_event_id,
+        ).execute()
 
-    event["summary"] = (
-        f"Hovor – {ADMIN_DISPLAY_NAME} – {caller_username} "
-        f"({duration_minutes} min)"
-    )
+        # Aktualizujeme summary so značkou a reálnym trvaním
+        event["summary"] = (
+            f"Hovor – {display_title} ({duration_minutes} min)"
+        )
 
-    event["description"] = (
-        f"Hovor medzi:\n"
-        f"Poradca: {ADMIN_DISPLAY_NAME}\n"
-        f"Volajúci: {caller_username}\n"
-        f"Trvanie: {duration_minutes} min\n\n"
-        f"Call ID: {call_doc.name}"
-    )
+        event["description"] = (
+            f"Dokončený hovor\n"
+            f"Značka klienta: {display_title}\n"
+            f"Poradca: {ADMIN_DISPLAY_NAME}\n"
+            f"Trvanie: {duration_minutes} min\n\n"
+            f"Call ID: {call_doc.name}"
+        )
 
-    event["start"] = {
-        "dateTime": start_dt.isoformat(),
-        "timeZone": "Europe/Bratislava",
-    }
+        event["start"] = {
+            "dateTime": start_dt.isoformat(),
+            "timeZone": "Europe/Bratislava",
+        }
 
-    event["end"] = {
-        "dateTime": end_dt.isoformat(),
-        "timeZone": "Europe/Bratislava",
-    }
+        event["end"] = {
+            "dateTime": end_dt.isoformat(),
+            "timeZone": "Europe/Bratislava",
+        }
 
-    service.events().update(
-        calendarId=ADMIN_CALENDAR_ID,
-        eventId=call_doc.google_event_id,
-        body=event,
-    ).execute()
+        service.events().update(
+            calendarId=ADMIN_CALENDAR_ID,
+            eventId=call_doc.google_event_id,
+            body=event,
+        ).execute()
+        
+    except Exception as e:
+        frappe.log_error(f"Google Calendar Update Error: {e}", "BC Calendar Update")
