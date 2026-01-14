@@ -68,9 +68,7 @@ ADMIN_CLERK_ID = "ADMIN_CLERK_ID_HERE"
 
 @frappe.whitelist(methods=["POST"], allow_guest=True)
 def start():
-    # --------------------------------------------------
-    # 1. Overenie Clerk JWT (caller musí byť prihlásený)
-    # --------------------------------------------------
+    # 1. AUTENTIFIKÁCIA
     clerk_id, _ = verify_clerk_bearer_and_get_sub()
 
     data = frappe.local.form_dict or {}
@@ -80,33 +78,22 @@ def start():
     if not caller_clerk or not advisor_clerk:
         frappe.throw(_("Missing callerId or advisorId"))
 
-    # Bezpečnosť: user môže štartovať call iba za seba (alebo admin)
+    # Bezpečnosť: užívateľ volá za seba alebo je to admin
     if clerk_id != caller_clerk and clerk_id != ADMIN_CLERK_ID:
         frappe.throw(_("Forbidden"), frappe.PermissionError)
 
-    # Ak iOS posiela "admin", namapujeme ho na reálne Clerk ID
     if advisor_clerk == "admin":
         advisor_clerk = ADMIN_CLERK_ID
 
-    # --------------------------------------------------
-    # 2. Lookup Klient.name a potrebných dát (značka, username)
-    # --------------------------------------------------
+    # 2. ZÍSKANIE MIEN (Prepojenie Clerk ID -> Frappe Klient Name)
     caller_name = get_klient_name_from_clerk(caller_clerk)
     advisor_name = get_klient_name_from_clerk(advisor_clerk)
 
-    if not caller_name:
-        frappe.throw(
-            f"Could not find caller in Klient: {caller_clerk}",
-            frappe.LinkValidationError,
-        )
+    if not caller_name or not advisor_name:
+        frappe.throw(_("Could not find caller or advisor in Klient database"))
 
-    if not advisor_name:
-        frappe.throw(
-            f"Could not find advisor in Klient: {advisor_clerk}",
-            frappe.LinkValidationError,
-        )
-
-    # Načítanie značky a username pre logiku kalendára
+    # 3. NAČÍTANIE DOPLNKOVÝCH DÁT (Značka a Username)
+    # Tu vyťahujeme pole 'znacka_klienta', ktoré rozhoduje o kalendári
     klient_info = frappe.db.get_value(
         "Klient", 
         {"clerk_id": caller_clerk}, 
@@ -114,14 +101,12 @@ def start():
         as_dict=True
     )
     
+    znacka = klient_info.get("znacka_klienta") if klient_info else None
     caller_username = klient_info.get("username") if klient_info else None
-    znacka_klienta = klient_info.get("znacka_klienta") if klient_info else None
 
     now = now_datetime()
 
-    # --------------------------------------------------
-    # 3. Token logika (len piatok, len klient)
-    # --------------------------------------------------
+    # 4. TOKEN LOGIKA (Len v piatok)
     token_required = is_friday(now) and caller_clerk != ADMIN_CLERK_ID
     used_token = None
 
@@ -130,15 +115,10 @@ def start():
         if not used_token:
             return {
                 "success": False,
-                "error": (
-                    "V piatok je na hovor potrebný token (minúty). "
-                    "Nemáš žiadne zostávajúce minúty."
-                ),
+                "error": "V piatok je potrebný token. Nemáte minúty."
             }
 
-    # --------------------------------------------------
-    # 4. Vytvorenie záznamu o hovore
-    # --------------------------------------------------
+    # 5. ZÁPIS DO DATABÁZY (Denník hovorov)
     call = frappe.get_doc({
         "doctype": "Dennik hovorov",
         "volajuci": caller_name,
@@ -147,68 +127,48 @@ def start():
         "zaciatok_cas": now.time().strftime("%H:%M:%S"),
         "pouzity_token": used_token,
     })
-
     call.insert(ignore_permissions=True)
 
-    # --------------------------------------------------
-    # 5. Google Calendar – IBA ak NEPOUŽIL token A MÁ značku
-    # --------------------------------------------------
-    # Podmienka: znacka_klienta nesmie byť prázdna
-    if not used_token and znacka_klienta:
+    # 6. GOOGLE CALENDAR LOGIKA (Nová úprava)
+    # Podmienka: Ak nie je token (v piatok) A ZÁROVEŇ existuje 'znacka'
+    if not used_token and znacka:
         try:
             from .google_calendar import create_call_event
+            
+            # Posielame 'znacka' ako názov udalosti
+            event_id = create_call_event(call, znacka)
+            
+            if event_id:
+                call.google_event_id = event_id
+                call.save(ignore_permissions=True)
+        except Exception:
+            frappe.log_error(frappe.get_traceback(), "Google Calendar Error")
 
-            # Ako display_title posielame značku klienta
-            event_id = create_call_event(
-                call,
-                znacka_klienta
-            )
-
-            call.google_event_id = event_id
-            call.save(ignore_permissions=True)
-
-        except Exception as e:
-            frappe.log_error(
-                str(e),
-                "Google Calendar Create Event Error",
-            )
-
-    # --------------------------------------------------
-    # 6. VoIP push notifikácie (multi-device)
-    # --------------------------------------------------
+    # 7. VOIP PUSH NOTIFIKÁCIE
     devices = frappe.get_all(
         "Zariadenie",
         filters={"parent": advisor_name},
-        fields=["voip_token"],
-        limit_page_length=20,
+        fields=["voip_token"]
     )
 
     for device in devices:
         token = device.get("voip_token")
-        if not token:
-            continue
-
-        try:
-            send_voip_push(
-                token,
-                {
+        if token:
+            try:
+                send_voip_push(token, {
                     "callId": call.name,
                     "callerId": caller_clerk,
                     "callerName": caller_name,
                     "title": "Prichádzajúci hovor",
                     "body": f"Volá {caller_name}",
-                },
-            )
-        except Exception as e:
-            frappe.log_error(
-                f"VoIP push failed for device {token}: {e}",
-                "BC VoIP Error",
-            )
+                })
+            except Exception:
+                pass
 
     return {
-        "success": True,
-        "callId": call.name,
-        "tokenUsed": used_token,
+        "success": True, 
+        "callId": call.name, 
+        "tokenUsed": used_token
     }
 
 
