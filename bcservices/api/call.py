@@ -68,7 +68,9 @@ ADMIN_CLERK_ID = "ADMIN_CLERK_ID_HERE"
 
 @frappe.whitelist(methods=["POST"], allow_guest=True)
 def start():
-    # 1. AUTENTIFIKÁCIA
+    # --------------------------------------------------
+    # 1. Overenie Clerk JWT
+    # --------------------------------------------------
     clerk_id, _ = verify_clerk_bearer_and_get_sub()
 
     data = frappe.local.form_dict or {}
@@ -78,35 +80,38 @@ def start():
     if not caller_clerk or not advisor_clerk:
         frappe.throw(_("Missing callerId or advisorId"))
 
-    # Bezpečnosť: užívateľ volá za seba alebo je to admin
+    # Bezpečnosť: user môže štartovať call iba za seba (alebo admin)
     if clerk_id != caller_clerk and clerk_id != ADMIN_CLERK_ID:
         frappe.throw(_("Forbidden"), frappe.PermissionError)
 
+    # Mapovanie "admin" na reálne Clerk ID
     if advisor_clerk == "admin":
         advisor_clerk = ADMIN_CLERK_ID
 
-    # 2. ZÍSKANIE MIEN (Prepojenie Clerk ID -> Frappe Klient Name)
+    # --------------------------------------------------
+    # 2. Lookup Klient.name
+    # --------------------------------------------------
     caller_name = get_klient_name_from_clerk(caller_clerk)
     advisor_name = get_klient_name_from_clerk(advisor_clerk)
 
     if not caller_name or not advisor_name:
         frappe.throw(_("Could not find caller or advisor in Klient database"))
 
-    # 3. NAČÍTANIE DOPLNKOVÝCH DÁT (Značka a Username)
-    # Tu vyťahujeme pole 'znacka_klienta', ktoré rozhoduje o kalendári
-    klient_info = frappe.db.get_value(
-        "Klient", 
-        {"clerk_id": caller_clerk}, 
-        ["username", "znacka_klienta"], 
-        as_dict=True
-    )
-    
-    znacka = klient_info.get("znacka_klienta") if klient_info else None
-    caller_username = klient_info.get("username") if klient_info else None
+    # --------------------------------------------------
+    # 3. INTELIGENTNÝ LOOKUP ZNAČKY (Admin vs Klient)
+    # --------------------------------------------------
+    # Získame značky pre oboch účastníkov
+    znacka_volajuci = frappe.db.get_value("Klient", {"clerk_id": caller_clerk}, "znacka_klienta")
+    znacka_poradca = frappe.db.get_value("Klient", {"clerk_id": advisor_clerk}, "znacka_klienta")
+
+    # Vyberieme tú značku, ktorá nie je prázdna (vždy to bude značka klienta, keďže admin nemá žiadnu)
+    finalna_znacka = znacka_volajuci or znacka_poradca
 
     now = now_datetime()
 
-    # 4. TOKEN LOGIKA (Len v piatok)
+    # --------------------------------------------------
+    # 4. Token logika (len piatok, len klient)
+    # --------------------------------------------------
     token_required = is_friday(now) and caller_clerk != ADMIN_CLERK_ID
     used_token = None
 
@@ -115,10 +120,12 @@ def start():
         if not used_token:
             return {
                 "success": False,
-                "error": "V piatok je potrebný token. Nemáte minúty."
+                "error": "V piatok je na hovor potrebný token. Nemáš minúty."
             }
 
-    # 5. ZÁPIS DO DATABÁZY (Denník hovorov)
+    # --------------------------------------------------
+    # 5. Vytvorenie hovoru
+    # --------------------------------------------------
     call = frappe.get_doc({
         "doctype": "Dennik hovorov",
         "volajuci": caller_name,
@@ -129,26 +136,33 @@ def start():
     })
     call.insert(ignore_permissions=True)
 
-    # 6. GOOGLE CALENDAR LOGIKA (Nová úprava)
-    # Podmienka: Ak nie je token (v piatok) A ZÁROVEŇ existuje 'znacka'
-    if not used_token and znacka:
+    # --------------------------------------------------
+    # 6. Google Calendar – IBA ak existuje značka a nepoužil sa token
+    # --------------------------------------------------
+    if not used_token and finalna_znacka:
         try:
             from .google_calendar import create_call_event
-            
-            # Posielame 'znacka' ako názov udalosti
-            event_id = create_call_event(call, znacka)
-            
-            if event_id:
-                call.google_event_id = event_id
-                call.save(ignore_permissions=True)
-        except Exception:
-            frappe.log_error(frappe.get_traceback(), "Google Calendar Error")
 
-    # 7. VOIP PUSH NOTIFIKÁCIE
+            # Do kalendára posielame nájdenú značku klienta
+            event_id = create_call_event(
+                call,
+                finalna_znacka
+            )
+
+            call.google_event_id = event_id
+            call.save(ignore_permissions=True)
+
+        except Exception as e:
+            frappe.log_error(frappe.get_traceback(), "Google Calendar Create Event Error")
+
+    # --------------------------------------------------
+    # 7. VoIP push na zariadenia poradcu
+    # --------------------------------------------------
     devices = frappe.get_all(
         "Zariadenie",
         filters={"parent": advisor_name},
-        fields=["voip_token"]
+        fields=["voip_token"],
+        limit_page_length=20,
     )
 
     for device in devices:
@@ -166,9 +180,9 @@ def start():
                 pass
 
     return {
-        "success": True, 
-        "callId": call.name, 
-        "tokenUsed": used_token
+        "success": True,
+        "callId": call.name,
+        "tokenUsed": used_token,
     }
 
 
