@@ -203,6 +203,9 @@ def accept():
 # ----------------------------------------------------------------------
 # END CALL
 # ----------------------------------------------------------------------
+# ----------------------------------------------------------------------
+# END CALL
+# ----------------------------------------------------------------------
 @frappe.whitelist(methods=["POST"], allow_guest=True)
 def end():
     import math
@@ -210,7 +213,9 @@ def end():
     from frappe.utils import now_datetime, getdate, get_time
     from datetime import datetime
 
-    # Overenie Clerk JWT
+    # --------------------------------------------------
+    # AUTH
+    # --------------------------------------------------
     clerk_id, _ = verify_clerk_bearer_and_get_sub()
     data = frappe.local.form_dict or {}
 
@@ -222,49 +227,53 @@ def end():
     now = now_datetime()
 
     # --------------------------------------------------
-    # ULOŽENIE KONCA HOVORU
+    # UKONČENIE HOVORU
     # --------------------------------------------------
     doc.koniec_datum = now.date()
     doc.koniec_cas = now.time().strftime("%H:%M:%S")
 
     # --------------------------------------------------
-    # VÝPOČET TRVANIA (ROBUSTNÝ)
+    # VÝPOČET TRVANIA
     # --------------------------------------------------
     try:
-        start_date = getdate(doc.zaciatok_datum)
-        start_time = get_time(doc.zaciatok_cas)
-
-        end_date = getdate(doc.koniec_datum)
-        end_time = get_time(doc.koniec_cas)
-
-        start_dt = datetime.combine(start_date, start_time)
-        end_dt = datetime.combine(end_date, end_time)
+        start_dt = datetime.combine(
+            getdate(doc.zaciatok_datum),
+            get_time(doc.zaciatok_cas),
+        )
+        end_dt = datetime.combine(
+            getdate(doc.koniec_datum),
+            get_time(doc.koniec_cas),
+        )
 
         doc.trvanie_s = max(0, int((end_dt - start_dt).total_seconds()))
     except Exception as e:
         frappe.log_error(
-            f"Duration calc error: {e}",
-            "BC Call Duration Error",
+            frappe.get_traceback(),
+            "BC CALL DURATION ERROR",
         )
         doc.trvanie_s = doc.trvanie_s or 0
 
     # --------------------------------------------------
-    # ODRÁTANIE MINÚT Z TOKENU (IDEMPOTENTNE)
+    # ODRÁTANIE TOKENU (IDEMPOTENTNE)
     # --------------------------------------------------
     try:
-        should_deduct = bool(getattr(doc, "pouzity_token", None)) and (doc.trvanie_s or 0) > 0
+        should_deduct = (
+            bool(getattr(doc, "pouzity_token", None))
+            and (doc.trvanie_s or 0) > 0
+        )
 
-        # Ak máš field "prijaty", odrátaj len ak bol prijatý
+        # iba ak bol prijatý
         if hasattr(doc, "prijaty") and not getattr(doc, "prijaty"):
             should_deduct = False
 
-        # Idempotencia – ak už boli minúty odrátané, nerob znova
-        if hasattr(doc, "minuty_pouzite") and (getattr(doc, "minuty_pouzite") or 0) > 0:
+        # idempotencia
+        if hasattr(doc, "minuty_pouzite") and (doc.minuty_pouzite or 0) > 0:
             should_deduct = False
 
         if should_deduct:
-            # Každých začatých 6 minút = 6 min
-            minutes_used = int(math.ceil((doc.trvanie_s or 0) / 360.0)) * 6
+            minutes_used = int(
+                math.ceil((doc.trvanie_s or 0) / 360.0)
+            ) * 6
 
             if hasattr(doc, "minuty_pouzite"):
                 doc.minuty_pouzite = minutes_used
@@ -279,19 +288,21 @@ def end():
 
             token_doc.save(ignore_permissions=True)
 
-    except Exception as e:
+    except Exception:
         frappe.log_error(
-            f"Token deduct error: {e}",
-            "BC Token Deduct Error",
+            frappe.get_traceback(),
+            "BC TOKEN DEDUCT ERROR",
         )
 
     # --------------------------------------------------
-    # GOOGLE CALENDAR EVENT – VYTVORENIE NA KONCI
+    # GOOGLE CALENDAR – VYTVORENIE EVENTU
     # --------------------------------------------------
     try:
-        # Podmienky:
-        # 1️⃣ nebol použitý token
-        # 2️⃣ trvanie > 0
+        frappe.log_error(
+            f"[CALENDAR CHECK] token={doc.pouzity_token}, trvanie={doc.trvanie_s}",
+            "DEBUG CALENDAR PRECHECK",
+        )
+
         if not doc.pouzity_token and (doc.trvanie_s or 0) > 0:
             znacka_klienta = frappe.db.get_value(
                 "Klient",
@@ -299,8 +310,15 @@ def end():
                 "znacka_klienta",
             )
 
+            frappe.log_error(
+                f"[CALENDAR CHECK] znacka_klienta={znacka_klienta}",
+                "DEBUG CALENDAR BRAND",
+            )
+
             if znacka_klienta:
-                from .google_calendar import create_call_event_from_end
+                from bcservices.api.google_calendar import (
+                    create_call_event_from_end,
+                )
 
                 event_id = create_call_event_from_end(
                     call_doc=doc,
@@ -310,10 +328,15 @@ def end():
                 if hasattr(doc, "google_event_id"):
                     doc.google_event_id = event_id
 
-    except Exception as e:
+                frappe.log_error(
+                    f"[CALENDAR CREATED] event_id={event_id}",
+                    "DEBUG CALENDAR SUCCESS",
+                )
+
+    except Exception:
         frappe.log_error(
-            str(e),
-            "Google Calendar End Event Error",
+            frappe.get_traceback(),
+            "GOOGLE CALENDAR ERROR",
         )
 
     # --------------------------------------------------
@@ -325,11 +348,10 @@ def end():
         "success": True,
         "callId": call_id,
         "duration_s": doc.trvanie_s,
-        "token": getattr(doc, "pouzity_token", None),
-        "minutes_deducted": getattr(doc, "minuty_pouzite", None)
-        if hasattr(doc, "minuty_pouzite")
-        else None,
+        "token": doc.pouzity_token,
+        "minutes_deducted": getattr(doc, "minuty_pouzite", None),
     }
+
 
 
 # ----------------------------------------------------------------------
