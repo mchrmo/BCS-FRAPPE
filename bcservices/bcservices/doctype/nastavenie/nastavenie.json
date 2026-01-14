@@ -8,6 +8,7 @@
   "clerk_issuer",
   "clerk_secret_key",
   "clerk_jwks_url",
+  "admin_clerk_id",
   "apn_team_id",
   "apn_key_id",
   "apn_bundle_id",
@@ -37,6 +38,11 @@
    "fieldname": "clerk_jwks_url",
    "fieldtype": "Data",
    "label": "Clerk JWKS URL"
+  },
+  {
+   "fieldname": "admin_clerk_id",
+   "fieldtype": "Data",
+   "label": "Admin Clerk ID"
   },
   {
    "fieldname": "apn_team_id",
@@ -109,7 +115,7 @@
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-01-14 18:05:00.000000",
+ "modified": "2026-01-14 18:15:00.000000",
  "modified_by": "Administrator",
  "module": "BCServices",
  "name": "Nastavenie",
