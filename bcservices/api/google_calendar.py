@@ -11,15 +11,15 @@ from googleapiclient.discovery import build
 
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
-# 🔑 PRESNÝ NÁZOV TVOJHO JSON SÚBORU
+# 🔑 PRESNÝ NÁZOV SERVICE ACCOUNT JSON
 SERVICE_ACCOUNT_FILE = frappe.get_site_path(
     "private",
     "files",
     "summer-heaven-478513-q6-323b705c6baa.json",
 )
 
-# Adminov Google kalendár
-ADMIN_CALENDAR_ID = "andrej.cernak2007@gmail.com"  # môžeš dať aj email admin@gmail.com
+# Admin Google kalendár
+ADMIN_CALENDAR_ID = "andrej.cernak2007@gmail.com"
 ADMIN_DISPLAY_NAME = "Admin"
 
 # --------------------------------------------------
@@ -39,9 +39,11 @@ def get_calendar_service():
 
     return build("calendar", "v3", credentials=credentials)
 
+# --------------------------------------------------
+# UPDATE CALL EVENT (END TIME)
+# --------------------------------------------------
 
-
-def update_call_event_end(call_doc, caller_username: str):
+def update_call_event_end(call_doc, znacka_klienta: str):
     if not getattr(call_doc, "google_event_id", None):
         return
 
@@ -57,25 +59,14 @@ def update_call_event_end(call_doc, caller_username: str):
         datetime.strptime(call_doc.koniec_cas, "%H:%M:%S").time(),
     )
 
-    duration_minutes = max(1, int((call_doc.trvanie_s or 0) / 60))
-
     event = service.events().get(
         calendarId=ADMIN_CALENDAR_ID,
         eventId=call_doc.google_event_id,
     ).execute()
 
-    event["summary"] = (
-        f"Hovor – {ADMIN_DISPLAY_NAME} – {caller_username} "
-        f"({duration_minutes} min)"
-    )
-
-    event["description"] = (
-        f"Hovor medzi:\n"
-        f"Poradca: {ADMIN_DISPLAY_NAME}\n"
-        f"Volajúci: {caller_username}\n"
-        f"Trvanie: {duration_minutes} min\n\n"
-        f"Call ID: {call_doc.name}"
-    )
+    # 🔹 FINÁLNY NÁZOV A POPIS
+    event["summary"] = znacka_klienta
+    event["description"] = "daný telefonát"
 
     event["start"] = {
         "dateTime": start_dt.isoformat(),
@@ -96,7 +87,7 @@ def update_call_event_end(call_doc, caller_username: str):
 # CREATE CALL EVENT
 # --------------------------------------------------
 
-def create_call_event(call_doc, caller_username: str):
+def create_call_event(call_doc, znacka_klienta: str):
     service = get_calendar_service()
 
     start_dt = datetime.combine(
@@ -108,13 +99,8 @@ def create_call_event(call_doc, caller_username: str):
     end_dt = start_dt + timedelta(minutes=30)
 
     event = {
-        "summary": f"Hovor – {ADMIN_DISPLAY_NAME} – {caller_username}",
-        "description": (
-            f"Hovor medzi:\n"
-            f"Poradca: {ADMIN_DISPLAY_NAME}\n"
-            f"Volajúci: {caller_username}\n\n"
-            f"Call ID: {call_doc.name}"
-        ),
+        "summary": znacka_klienta,
+        "description": "daný telefonát",
         "start": {
             "dateTime": start_dt.isoformat(),
             "timeZone": "Europe/Bratislava",
@@ -135,4 +121,3 @@ def create_call_event(call_doc, caller_username: str):
     )
 
     return created_event.get("id")
-
