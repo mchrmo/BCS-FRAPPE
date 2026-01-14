@@ -1,16 +1,13 @@
-# apps/bcservices/bcservices/api/google_calendar.py
-
-import os
 import frappe
-from datetime import datetime
-
+import os
+from datetime import datetime, timedelta
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
+
 
 # --------------------------------------------------
 # CONFIG
 # --------------------------------------------------
-
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
 SERVICE_ACCOUNT_FILE = frappe.get_site_path(
@@ -20,13 +17,13 @@ SERVICE_ACCOUNT_FILE = frappe.get_site_path(
 )
 
 ADMIN_CALENDAR_ID = "andrej.cernak2007@gmail.com"
-TIMEZONE = "Europe/Bratislava"
+ADMIN_DISPLAY_NAME = "Admin"
+
 
 # --------------------------------------------------
-# INTERNAL HELPER
+# HELPERS
 # --------------------------------------------------
-
-def _get_calendar_service():
+def get_calendar_service():
     if not os.path.exists(SERVICE_ACCOUNT_FILE):
         raise FileNotFoundError(
             f"Google Calendar JSON not found: {SERVICE_ACCOUNT_FILE}"
@@ -39,17 +36,58 @@ def _get_calendar_service():
 
     return build("calendar", "v3", credentials=credentials)
 
-# --------------------------------------------------
-# PUBLIC API – JEDINÁ FUNKCIA, KTORÚ POUŽÍVAŠ
-# --------------------------------------------------
 
-def create_call_event_from_end(call_doc, znacka_klienta: str):
-    """
-    Vytvorí Google Calendar event PO UKONČENÍ hovoru.
-    Používa sa výhradne z call.end().
-    """
+# --------------------------------------------------
+# CREATE CALL EVENT
+# --------------------------------------------------
+def create_call_event(call_doc, caller_username: str):
+    service = get_calendar_service()
 
-    service = _get_calendar_service()
+    start_dt = datetime.combine(
+        call_doc.zaciatok_datum,
+        datetime.strptime(call_doc.zaciatok_cas, "%H:%M:%S").time(),
+    )
+
+    end_dt = start_dt + timedelta(minutes=30)
+
+    event = {
+        "summary": f"Hovor – {ADMIN_DISPLAY_NAME} – {caller_username}",
+        "description": (
+            f"Hovor medzi:\n"
+            f"Poradca: {ADMIN_DISPLAY_NAME}\n"
+            f"Volajúci: {caller_username}\n\n"
+            f"Call ID: {call_doc.name}"
+        ),
+        "start": {
+            "dateTime": start_dt.isoformat(),
+            "timeZone": "Europe/Bratislava",
+        },
+        "end": {
+            "dateTime": end_dt.isoformat(),
+            "timeZone": "Europe/Bratislava",
+        },
+    }
+
+    created_event = (
+        service.events()
+        .insert(
+            calendarId=ADMIN_CALENDAR_ID,
+            body=event,
+        )
+        .execute()
+    )
+
+    return created_event.get("id")
+
+
+# --------------------------------------------------
+# UPDATE CALL EVENT END
+# --------------------------------------------------
+def update_call_event_end(call_doc, caller_username: str):
+    if not getattr(call_doc, "google_event_id", None):
+        return
+
+    service = get_calendar_service()
 
     start_dt = datetime.combine(
         call_doc.zaciatok_datum,
@@ -61,24 +99,38 @@ def create_call_event_from_end(call_doc, znacka_klienta: str):
         datetime.strptime(call_doc.koniec_cas, "%H:%M:%S").time(),
     )
 
-    duration_min = max(1, int((call_doc.trvanie_s or 0) / 60))
+    duration_minutes = max(1, int((call_doc.trvanie_s or 0) / 60))
 
-    event = {
-        "summary": znacka_klienta,
-        "description": f"daný telefonát ({duration_min} min)",
-        "start": {
-            "dateTime": start_dt.isoformat(),
-            "timeZone": TIMEZONE,
-        },
-        "end": {
-            "dateTime": end_dt.isoformat(),
-            "timeZone": TIMEZONE,
-        },
-    }
-
-    created_event = service.events().insert(
+    event = service.events().get(
         calendarId=ADMIN_CALENDAR_ID,
-        body=event,
+        eventId=call_doc.google_event_id,
     ).execute()
 
-    return created_event.get("id")
+    event["summary"] = (
+        f"Hovor – {ADMIN_DISPLAY_NAME} – {caller_username} "
+        f"({duration_minutes} min)"
+    )
+
+    event["description"] = (
+        f"Hovor medzi:\n"
+        f"Poradca: {ADMIN_DISPLAY_NAME}\n"
+        f"Volajúci: {caller_username}\n"
+        f"Trvanie: {duration_minutes} min\n\n"
+        f"Call ID: {call_doc.name}"
+    )
+
+    event["start"] = {
+        "dateTime": start_dt.isoformat(),
+        "timeZone": "Europe/Bratislava",
+    }
+
+    event["end"] = {
+        "dateTime": end_dt.isoformat(),
+        "timeZone": "Europe/Bratislava",
+    }
+
+    service.events().update(
+        calendarId=ADMIN_CALENDAR_ID,
+        eventId=call_doc.google_event_id,
+        body=event,
+    ).execute()
