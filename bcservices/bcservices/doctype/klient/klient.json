@@ -7,6 +7,7 @@
  "engine": "InnoDB",
  "field_order": [
   "username",
+  "znacka_klienta",
   "email",
   "heslo",
   "zariadenie",
@@ -41,6 +42,11 @@
    "fieldtype": "Data",
    "label": "Meno",
    "unique": 1
+  },
+  {
+   "fieldname": "znacka_klienta",
+   "fieldtype": "Data",
+   "label": "Značka klienta"
   }
  ],
  "grid_page_length": 50,
