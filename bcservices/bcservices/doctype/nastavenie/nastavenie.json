@@ -15,6 +15,8 @@
   "apn_production",
   "stripe_secret_key",
   "stripe_webhook_secret",
+  "google_calendar_id",
+  "google_json_file",
   "friday_base_price_eur",
   "friday_base_year",
   "max_primary_tokens_per_user",
@@ -24,80 +26,90 @@
   {
    "fieldname": "clerk_issuer",
    "fieldtype": "Data",
-   "label": "clerk_issuer"
+   "label": "Clerk Issuer"
   },
   {
    "fieldname": "clerk_secret_key",
    "fieldtype": "Data",
-   "label": "clerk_secret_key"
+   "label": "Clerk Secret Key"
   },
   {
    "fieldname": "clerk_jwks_url",
    "fieldtype": "Data",
-   "label": "clerk_jwks_url"
+   "label": "Clerk JWKS URL"
   },
   {
    "fieldname": "apn_team_id",
    "fieldtype": "Data",
-   "label": "apn_team_id"
+   "label": "APN Team ID"
   },
   {
    "fieldname": "apn_key_id",
    "fieldtype": "Data",
-   "label": "apn_key_id"
+   "label": "APN Key ID"
   },
   {
    "fieldname": "apn_bundle_id",
    "fieldtype": "Data",
-   "label": "apn_bundle_id"
+   "label": "APN Bundle ID"
   },
   {
    "fieldname": "apn_key_file",
    "fieldtype": "Attach",
-   "label": "apn_key_file"
+   "label": "APN Key File (.p8)"
   },
   {
    "default": "0",
    "fieldname": "apn_production",
    "fieldtype": "Check",
-   "label": "apn_production"
+   "label": "APN Production"
   },
   {
    "fieldname": "stripe_secret_key",
    "fieldtype": "Data",
-   "label": "stripe_secret_key"
+   "label": "Stripe Secret Key"
   },
   {
    "fieldname": "stripe_webhook_secret",
    "fieldtype": "Data",
-   "label": "stripe_webhook_secret"
+   "label": "Stripe Webhook Secret"
+  },
+  {
+   "fieldname": "google_calendar_id",
+   "fieldtype": "Data",
+   "label": "Google Calendar ID (Email)"
+  },
+  {
+   "fieldname": "google_json_file",
+   "fieldtype": "Attach",
+   "label": "Google JSON File (Credentials)"
   },
   {
    "fieldname": "friday_base_price_eur",
    "fieldtype": "Float",
-   "label": "friday_base_price_eur"
+   "label": "Friday Base Price (EUR)"
   },
   {
    "fieldname": "friday_base_year",
    "fieldtype": "Int",
-   "label": "friday_base_year"
+   "label": "Friday Base Year"
   },
   {
    "fieldname": "max_primary_tokens_per_user",
    "fieldtype": "Int",
-   "label": "max_primary_tokens_per_user"
+   "label": "Max Primary Tokens Per User"
   },
   {
    "fieldname": "app_url",
    "fieldtype": "Data",
-   "label": "app_url"
+   "label": "App URL"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2025-11-24 20:15:00.000000",
+ "modified": "2026-01-14 18:05:00.000000",
  "modified_by": "Administrator",
  "module": "BCServices",
  "name": "Nastavenie",
