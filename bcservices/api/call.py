@@ -112,6 +112,8 @@ def start():
         except Exception:
             frappe.log_error(frappe.get_traceback(), "Google Calendar Start Error")
 
+    # ... (predošlý kód zostáva rovnaký) ...
+
     # 7. VoIP Push notifikácie
     devices = frappe.get_all(
         "Zariadenie",
@@ -133,7 +135,13 @@ def start():
             except Exception:
                 pass
 
-    return {"success": True, "callId": call.name, "tokenUsed": used_token}
+    # PRIDANÉ: advisorName do návratovej hodnoty
+    return {
+        "success": True, 
+        "callId": call.name, 
+        "tokenUsed": used_token,
+        "advisorName": advisor_name  # Toto meno si aplikácia prevezme
+    }
 # ----------------------------------------------------------------------
 # ACCEPT CALL
 # ----------------------------------------------------------------------
