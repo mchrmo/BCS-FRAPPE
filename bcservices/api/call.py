@@ -171,6 +171,8 @@ def accept():
 
 @frappe.whitelist(methods=["POST"], allow_guest=True)
 def end():
+    data = frappe.local.form_dict or {}
+    frappe.log_error(title="Debug End Call", message=f"Prijaté dáta: {data}")
     # 1. Overenie identity
     clerk_id, _ = verify_clerk_bearer_and_get_sub()
     
