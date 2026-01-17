@@ -42,11 +42,9 @@ def pick_active_token_for_holder(klient_name: str) -> str | None:
 # ----------------------------------------------------------------------
 @frappe.whitelist(methods=["POST"], allow_guest=True)
 def start():
-    # Načítanie dynamických nastavení z Frappe
+    # 1. Načítanie nastavení a overenie identity
     settings = get_settings()
     admin_id = settings.admin_clerk_id
-
-    # 1. Overenie Clerk JWT
     clerk_id, _ = verify_clerk_bearer_and_get_sub()
 
     data = frappe.local.form_dict or {}
@@ -56,29 +54,26 @@ def start():
     if not caller_clerk or not advisor_clerk:
         frappe.throw(_("Missing callerId or advisorId"))
 
-    # Bezpečnosť: užívateľ môže začať hovor len za seba, alebo ak je admin
     if clerk_id != caller_clerk and clerk_id != admin_id:
         frappe.throw(_("Forbidden"), frappe.PermissionError)
 
-    # Mapovanie skratky "admin" na reálne ID z Nastavení
     if advisor_clerk == "admin":
         advisor_clerk = admin_id
 
-    # 2. Lookup mien účastníkov
+    # 2. Lookup účastníkov a značky
     caller_name = get_klient_name_from_clerk(caller_clerk)
     advisor_name = get_klient_name_from_clerk(advisor_clerk)
 
     if not caller_name or not advisor_name:
         frappe.throw(_("Could not find participants in Klient database"))
 
-    # 3. Zistenie značky klienta (obojsmerne)
     zn_caller = frappe.db.get_value("Klient", {"clerk_id": caller_clerk}, "znacka_klienta")
     zn_advisor = frappe.db.get_value("Klient", {"clerk_id": advisor_clerk}, "znacka_klienta")
     finalna_znacka = zn_caller or zn_advisor
 
+    # 3. Logika Tokenov (Piatok)
+    from frappe.utils import now_datetime, nowdate, nowtime
     now = now_datetime()
-
-    # 4. Logika Tokenov (Piatok)
     token_required = is_friday(now) and caller_clerk != admin_id
     used_token = None
 
@@ -90,18 +85,19 @@ def start():
                 "error": "V piatok je potrebný token. Nemáte dostupné minúty."
             }
 
-    # 5. Vytvorenie hovoru v DB
+    # 4. Vytvorenie hovoru v DB
     call = frappe.get_doc({
         "doctype": "Dennik hovorov",
         "volajuci": caller_name,
         "poradca": advisor_name,
-        "zaciatok_datum": now.date(),
-        "zaciatok_cas": now.time().strftime("%H:%M:%S"),
+        "zaciatok_datum": nowdate(), # Zabezpečí správny formát pre kalendár
+        "zaciatok_cas": nowtime(),   # Zabezpečí správny formát pre kalendár
         "pouzity_token": used_token,
     })
     call.insert(ignore_permissions=True)
+    frappe.db.commit() # Uloží hovor do DB, aby ho kalendár videl
 
-    # 6. Google Calendar (iba ak existuje značka a nie je to hovor na token)
+    # 5. Google Calendar (iba ak nie je token/piatok a je značka)
     if not used_token and finalna_znacka:
         try:
             from .google_calendar import create_call_event
@@ -109,29 +105,22 @@ def start():
             if event_id:
                 call.google_event_id = event_id
                 call.save(ignore_permissions=True)
+                frappe.db.commit()
         except Exception:
             frappe.log_error(frappe.get_traceback(), "Google Calendar Start Error")
 
-    # 7. VoIP Push notifikácie
-    devices = frappe.get_all(
-        "Zariadenie",
-        filters={"parent": advisor_name},
-        fields=["voip_token"]
-    )
-
+    # 6. VoIP Push (zjednodušené bez zbytočného try-except pass, aby si videl chyby)
+    devices = frappe.get_all("Zariadenie", filters={"parent": advisor_name}, fields=["voip_token"])
     for device in devices:
         token = device.get("voip_token")
         if token:
-            try:
-                send_voip_push(token, {
-                    "callId": call.name,
-                    "callerId": caller_clerk,
-                    "callerName": caller_name,
-                    "title": "Prichádzajúci hovor",
-                    "body": f"Volá {caller_name}",
-                })
-            except Exception:
-                pass
+            send_voip_push(token, {
+                "callId": call.name,
+                "callerId": caller_clerk,
+                "callerName": caller_name,
+                "title": "Prichádzajúci hovor",
+                "body": f"Volá {caller_name}",
+            })
 
     return {"success": True, "callId": call.name, "tokenUsed": used_token}
 
@@ -160,11 +149,12 @@ def accept():
 
     return {"success": True, "callId": call_id}
 
-# ----------------------------------------------------------------------
-# END CALL
-# ----------------------------------------------------------------------
+
+
 @frappe.whitelist(methods=["POST"], allow_guest=True)
 def end():
+    from frappe.utils import get_datetime, nowdate, nowtime
+    
     clerk_id, _ = verify_clerk_bearer_and_get_sub()
     data = frappe.local.form_dict or {}
     call_id = data.get("callId")
@@ -173,23 +163,23 @@ def end():
         frappe.throw("Missing callId")
 
     doc = frappe.get_doc("Dennik hovorov", call_id)
-    now = now_datetime()
+    
+    # Nastavenie konca hovoru
+    doc.koniec_datum = nowdate()
+    doc.koniec_cas = nowtime()
 
-    doc.koniec_datum = now.date()
-    doc.koniec_cas = now.time().strftime("%H:%M:%S")
-
-    # Výpočet trvania
+    # Robustný výpočet trvania
     try:
-        start_dt = datetime.combine(getdate(doc.zaciatok_datum), get_time(doc.zaciatok_cas))
-        end_dt = datetime.combine(getdate(doc.koniec_datum), get_time(doc.koniec_cas))
+        start_dt = get_datetime(f"{doc.zaciatok_datum} {doc.zaciatok_cas}")
+        end_dt = get_datetime(f"{doc.koniec_datum} {doc.koniec_cas}")
         doc.trvanie_s = max(0, int((end_dt - start_dt).total_seconds()))
-    except Exception:
+    except Exception as e:
+        frappe.log_error(f"Duration calculation error: {e}", "End Call Error")
         doc.trvanie_s = 0
 
     # Logika odrátania tokenov
     if doc.pouzity_token and doc.trvanie_s > 0 and getattr(doc, "prijaty", 0):
         try:
-            # 6-minútové bloky
             minutes_to_deduct = int(math.ceil(doc.trvanie_s / 360.0)) * 6
             doc.minuty_pouzite = minutes_to_deduct
 
@@ -202,11 +192,11 @@ def end():
             frappe.log_error(frappe.get_traceback(), "Token Deduction Error")
 
     doc.save(ignore_permissions=True)
+    frappe.db.commit() # Zabezpečí, že sa dáta uložia aj pri volaní cez API
 
-    # Aktualizácia kalendára pri ukončení
+    # Aktualizácia kalendára
     if doc.google_event_id:
         try:
-            # Opäť zistíme značku pre summary
             zn_v = frappe.db.get_value("Klient", {"name": doc.volajuci}, "znacka_klienta")
             zn_p = frappe.db.get_value("Klient", {"name": doc.poradca}, "znacka_klienta")
             from .google_calendar import update_call_event_end
