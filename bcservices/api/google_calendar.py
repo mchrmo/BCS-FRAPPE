@@ -1,9 +1,8 @@
 import frappe
 import os
-from datetime import timedelta
+from datetime import datetime, timedelta
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
-from frappe.utils import get_datetime
 
 # --------------------------------------------------
 # CONFIG (Načítavaný z DocTypu Nastavenie)
@@ -30,8 +29,9 @@ def get_calendar_service():
     # Prevod relatívnej cesty (/files/...) na absolútnu cestu na serveri
     absolute_path = frappe.get_site_path(json_file_path.strip("/"))
     
+    # Ak by súbor nebol nájdený cez relatívnu cestu, skúsime ju vybudovať manuálne
     if not os.path.exists(absolute_path):
-        # Štandardné Frappe ukladanie: public/files/
+        # Štandardné Frappe ukladanie: public/files/ alebo private/files/
         absolute_path = frappe.get_public_path(json_file_path.strip("/"))
 
     if not os.path.exists(absolute_path):
@@ -56,8 +56,11 @@ def create_call_event(call_doc, display_title: str):
     if not calendar_id:
         frappe.throw("V nastaveniach chýba Google Calendar ID (Email).")
 
-    # Bezpečné spojenie dátumu a času pomocou Frappe helpera
-    start_dt = get_datetime(f"{call_doc.zaciatok_datum} {call_doc.zaciatok_cas}")
+    start_dt = datetime.combine(
+        call_doc.zaciatok_datum,
+        datetime.strptime(call_doc.zaciatok_cas, "%H:%M:%S").time(),
+    )
+
     end_dt = start_dt + timedelta(minutes=30)
 
     event = {
@@ -81,7 +84,7 @@ def create_call_event(call_doc, display_title: str):
     created_event = (
         service.events()
         .insert(
-            calendarId=calendar_id,
+            calendarId=calendar_id, # Použité ID z nastavení
             body=event,
         )
         .execute()
@@ -100,15 +103,21 @@ def update_call_event_end(call_doc, display_title: str):
     settings = get_settings()
     calendar_id = settings.google_calendar_id
 
+    start_dt = datetime.combine(
+        call_doc.zaciatok_datum,
+        datetime.strptime(call_doc.zaciatok_cas, "%H:%M:%S").time(),
+    )
+
+    end_dt = datetime.combine(
+        call_doc.koniec_datum,
+        datetime.strptime(call_doc.koniec_cas, "%H:%M:%S").time(),
+    )
+
+    duration_minutes = max(1, int((call_doc.trvanie_s or 0) / 60))
+
     try:
-        # Bezpečné získanie časových objektov
-        start_dt = get_datetime(f"{call_doc.zaciatok_datum} {call_doc.zaciatok_cas}")
-        end_dt = get_datetime(f"{call_doc.koniec_datum} {call_doc.koniec_cas}")
-
-        duration_minutes = max(1, int((call_doc.trvanie_s or 0) / 60))
-
         event = service.events().get(
-            calendarId=calendar_id,
+            calendarId=calendar_id, # Použité ID z nastavení
             eventId=call_doc.google_event_id,
         ).execute()
 
@@ -125,7 +134,7 @@ def update_call_event_end(call_doc, display_title: str):
         event["end"] = {"dateTime": end_dt.isoformat(), "timeZone": "Europe/Bratislava"}
 
         service.events().update(
-            calendarId=calendar_id,
+            calendarId=calendar_id, # Použité ID z nastavení
             eventId=call_doc.google_event_id,
             body=event,
         ).execute()
