@@ -161,61 +161,79 @@ def accept():
 
 
 
-# ----------------------------------------------------------------------
-# END CALL
-# ----------------------------------------------------------------------
 @frappe.whitelist(methods=["POST"], allow_guest=True)
 def end():
+    # 1. Overenie identity (Clerk)
     clerk_id, _ = verify_clerk_bearer_and_get_sub()
+    
     data = frappe.local.form_dict or {}
     call_id = data.get("callId")
 
     if not call_id:
-        frappe.throw("Missing callId")
+        frappe.throw(_("Missing callId"))
 
-    doc = frappe.get_doc("Dennik hovorov", call_id)
-    now = now_datetime()
-
-    doc.koniec_datum = now.date()
-    doc.koniec_cas = now.time().strftime("%H:%M:%S")
-
-    # Výpočet trvania
+    # 2. Načítanie dokumentu hovoru
     try:
+        doc = frappe.get_doc("Dennik hovorov", call_id)
+    except frappe.DoesNotExistError:
+        frappe.throw(_("Hovor s ID {0} neexistuje").format(call_id))
+
+    # 3. Získanie aktuálneho času (Frappe utils sú spoľahlivejšie pre časové zóny)
+    now = now_datetime()
+    doc.koniec_datum = now.date()
+    doc.koniec_cas = now.strftime("%H:%M:%S")
+
+    # 4. Výpočet trvania hovoru
+    try:
+        # Kombinácia uloženého dátumu/času začiatku na datetime objekt
         start_dt = datetime.combine(getdate(doc.zaciatok_datum), get_time(doc.zaciatok_cas))
-        end_dt = datetime.combine(getdate(doc.koniec_datum), get_time(doc.koniec_cas))
-        doc.trvanie_s = max(0, int((end_dt - start_dt).total_seconds()))
-    except Exception:
+        
+        # Rozdiel v sekundách
+        diff = (now - start_dt).total_seconds()
+        doc.trvanie_s = max(0, int(diff))
+    except Exception as e:
+        frappe.log_error(title="Chyba vypoctu trvania", message=frappe.get_traceback())
         doc.trvanie_s = 0
 
-    # Logika odrátania tokenov
+    # 5. Logika odrátania tokenov (iba ak hovor bol prijatý a trval nejaký čas)
     if doc.pouzity_token and doc.trvanie_s > 0 and getattr(doc, "prijaty", 0):
         try:
-            # 6-minútové bloky
+            # Výpočet: každých začatých 6 minút (360s) = 6 minút z tokenu
             minutes_to_deduct = int(math.ceil(doc.trvanie_s / 360.0)) * 6
             doc.minuty_pouzite = minutes_to_deduct
 
             token_doc = frappe.get_doc("Token", doc.pouzity_token)
             remaining = max(0, int(token_doc.minuty_ostavajuce or 0) - minutes_to_deduct)
+            
             token_doc.minuty_ostavajuce = remaining
-            token_doc.stav = "spent" if remaining == 0 else "active"
+            token_doc.stav = "spent" if remaining <= 0 else "active"
             token_doc.save(ignore_permissions=True)
+            
         except Exception:
-            frappe.log_error(frappe.get_traceback(), "Token Deduction Error")
+            frappe.log_error(title="Token Deduction Error", message=frappe.get_traceback())
 
+    # 6. Uloženie hovoru a Google Calendar update
     doc.save(ignore_permissions=True)
 
-    # Aktualizácia kalendára pri ukončení
     if doc.google_event_id:
         try:
-            # Opäť zistíme značku pre summary
+            from .google_calendar import update_call_event_end
+            # Získame značku klienta pre popis v kalendári
             zn_v = frappe.db.get_value("Klient", {"name": doc.volajuci}, "znacka_klienta")
             zn_p = frappe.db.get_value("Klient", {"name": doc.poradca}, "znacka_klienta")
-            from .google_calendar import update_call_event_end
             update_call_event_end(doc, zn_v or zn_p)
         except Exception:
-            pass
+            frappe.log_error(title="Google Calendar End Error", message=frappe.get_traceback())
 
-    return {"success": True, "callId": call_id, "duration_s": doc.trvanie_s}
+    # 7. EXTRÉMNE DÔLEŽITÉ: Commitnutie zmien do databázy
+    frappe.db.commit()
+
+    return {
+        "success": True, 
+        "callId": call_id, 
+        "duration_s": doc.trvanie_s,
+        "end_time": doc.koniec_cas
+    }
 
 # ----------------------------------------------------------------------
 # CALL HISTORY
