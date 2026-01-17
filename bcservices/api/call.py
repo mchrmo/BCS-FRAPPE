@@ -171,7 +171,7 @@ def accept():
 
 @frappe.whitelist(methods=["POST"], allow_guest=True)
 def end():
-    # 1. Overenie identity (Clerk)
+    # 1. Overenie identity
     clerk_id, _ = verify_clerk_bearer_and_get_sub()
     
     data = frappe.local.form_dict or {}
@@ -180,75 +180,60 @@ def end():
     if not call_id:
         frappe.throw(_("Missing callId"))
 
-    # 2. Načítanie dokumentu hovoru
+    # 2. Načítanie dokumentu
     try:
         doc = frappe.get_doc("Dennik hovorov", call_id)
     except frappe.DoesNotExistError:
-        frappe.throw(_("Hovor s ID {0} neexistuje").format(call_id))
+        frappe.throw(_("Hovor neexistuje"))
 
-    # 3. Získanie aktuálneho času a dátumu
     now = now_datetime()
     
-    # Použijeme metódu .db_set alebo priradenie s následným .save()
-    # POZOR: Uisti sa, že fieldnames v DocType sú presne tieto:
-    doc.koniec_datum = now.date()
-    doc.koniec_cas = now.strftime("%H:%M:%S")
-
-    # 4. Výpočet trvania hovoru
-    try:
-        # Prevod uloženého začiatku na datetime pre výpočet sekúnd
-        # Predpokladáme fieldnames: zaciatok_datum a zaciatok_cas
-        start_date = getdate(doc.zaciatok_datum)
-        start_time = get_time(doc.zaciatok_cas)
-        start_dt = datetime.combine(start_date, start_time)
-        
-        diff = (now - start_dt).total_seconds()
-        doc.trvanie_s = max(0, int(diff))
-    except Exception as e:
-        frappe.log_error(title="Chyba vypoctu trvania", message=frappe.get_traceback())
-        doc.trvanie_s = 0
-
-    # 5. Logika odrátania tokenov
-    # Musíme skontrolovať aj pole 'prijaty' (či je to Checkbox)
-    is_prijaty = getattr(doc, "prijaty", 0)
+    # 3. PRIAMY ZÁPIS ČASU (Najistejšia metóda)
+    koniec_d = now.date()
+    koniec_c = now.strftime("%H:%M:%S")
     
-    if doc.pouzity_token and doc.trvanie_s > 0 and is_prijaty:
-        try:
-            # Každých začatých 6 minút (360s) = 6 minút z tokenu
-            minutes_to_deduct = int(math.ceil(doc.trvanie_s / 360.0)) * 6
-            doc.minuty_pouzite = minutes_to_deduct
+    frappe.db.set_value("Dennik hovorov", call_id, {
+        "koniec_datum": koniec_d,
+        "koniec_cas": koniec_c
+    })
 
+    # 4. VÝPOČET TRVANIA
+    duration = 0
+    try:
+        start_dt = datetime.combine(getdate(doc.zaciatok_datum), get_time(doc.zaciatok_cas))
+        duration = max(0, int((now - start_dt).total_seconds()))
+        
+        # Zápis trvania do poľa trvanie_s (overené podľa screenshotu)
+        frappe.db.set_value("Dennik hovorov", call_id, "trvanie_s", duration)
+    except Exception:
+        frappe.log_error(title="Chyba vypoctu trvania", message=frappe.get_traceback())
+
+    # 5. LOGIKA TOKENOV (ak bol hovor prijatý)
+    if doc.pouzity_token and getattr(doc, "prijaty", 0):
+        try:
+            # Výpočet: každých začatých 6 minút (360s) = 6 minút
+            mins = int(math.ceil(duration / 360.0)) * 6
+            frappe.db.set_value("Dennik hovorov", call_id, "minuty_pouzite", mins)
+
+            # Odčítanie z Tokenu
             token_doc = frappe.get_doc("Token", doc.pouzity_token)
-            remaining = max(0, int(token_doc.minuty_ostavajuce or 0) - minutes_to_deduct)
+            rem = max(0, int(token_doc.minuty_ostavajuce or 0) - mins)
             
-            token_doc.minuty_ostavajuce = remaining
-            token_doc.stav = "spent" if remaining <= 0 else "active"
-            token_doc.save(ignore_permissions=True)
-            
+            token_doc.db_set("minuty_ostavajuce", rem)
+            if rem <= 0:
+                token_doc.db_set("stav", "spent")
         except Exception:
-            frappe.log_error(title="Token Deduction Error", message=frappe.get_traceback())
+            frappe.log_error(title="Token Error", message=frappe.get_traceback())
 
-    # 6. Uloženie a Google Calendar
-    # TOTO JE KĽÚČOVÉ: ignore_permissions=True a následný commit
-    doc.save(ignore_permissions=True)
-
-    if doc.google_event_id:
-        try:
-            from .google_calendar import update_call_event_end
-            zn_v = frappe.db.get_value("Klient", {"name": doc.volajuci}, "znacka_klienta")
-            zn_p = frappe.db.get_value("Klient", {"name": doc.poradca}, "znacka_klienta")
-            update_call_event_end(doc, zn_v or zn_p)
-        except Exception:
-            frappe.log_error(title="Google Calendar End Error", message=frappe.get_traceback())
-
-    # 7. COMMIT - Bez tohto sa zmeny v databáze nemusia prejaviť pri externom API volaní
+    # 6. COMMIT A ODPOVEĎ
+    # Bez commitu sa zmeny pri whitelist volaní nemusia prejaviť v DB
     frappe.db.commit()
 
     return {
         "success": True, 
         "callId": call_id, 
-        "duration_s": doc.trvanie_s,
-        "end_time": doc.koniec_cas
+        "duration": duration,
+        "end_time": koniec_c
     }
 
 # ----------------------------------------------------------------------
