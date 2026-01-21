@@ -13,8 +13,23 @@ from .utils import (
     ensure_bc_user_by_clerk,
     _jwks_client,
     _clerk_issuer,
-    get_settings,   # ⬅️ pridáme toto
+    get_settings,   # ⬅️ už importované
 )
+
+# -----------------------------------------------------------------------------
+# PUBLIC API – iOS / CLIENTS
+# -----------------------------------------------------------------------------
+
+@frappe.whitelist(methods=["GET"], allow_guest=True)
+def get_settings_public():
+    """
+    iOS volá: /api/method/bcservices.api.auth.get_settings_public
+    Vráti Clerk ID administrátora, aby klient vedel komu písať čet.
+    """
+    settings = get_settings()
+    return {
+        "admin_clerk_id": settings.admin_clerk_id
+    }
 
 # -----------------------------------------------------------------------------
 # PUBLIC API – iOS / CLIENTS
