@@ -1,43 +1,64 @@
+# apps/bcservices/bcservices/api/chat.py
+
 import frappe
-from .utils import verify_clerk_bearer_and_get_sub
+from frappe.utils import now_datetime
 
-@frappe.whitelist(methods=["POST"], allow_guest=True)
-def poslat_spravu():
-    # 1. Overíme používateľa cez Clerk JWT (tvoja funkcia z utils.py)
-    clerk_id, _ = verify_clerk_bearer_and_get_sub()
-    
+def _require_internal_token():
+    token = frappe.get_request_header("X-Chat-Token")
+    expected = frappe.conf.get("chat_internal_token")
+
+    if not token or not expected or token != expected:
+        frappe.throw("Unauthorized", frappe.PermissionError)
+
+
+def _get_client_by_clerk_id(clerk_id: str) -> str:
+    name = frappe.db.get_value("Klient", {"clerk_id": clerk_id}, "name")
+    if not name:
+        frappe.throw(f"Unknown clerk_id: {clerk_id}")
+    return name
+
+
+@frappe.whitelist(methods=["POST"])
+def save_message():
+    """
+    Volá IBA signaling server.
+    Header:
+      X-Chat-Token: <secret>
+
+    Body:
+    {
+      "from": "<clerk_id>",
+      "to": "<clerk_id>",
+      "content": "...",
+      "room_id": "optional"
+    }
+    """
+    _require_internal_token()
+
     data = frappe.local.form_dict
-    prijemca_id = data.get("prijemca")  # clerk_id príjemcu
-    obsah = data.get("obsah")
 
-    if not prijemca_id or not obsah:
-        frappe.throw("Chýba príjemca alebo obsah správy")
+    from_clerk = data.get("from")
+    to_clerk = data.get("to")
+    content = data.get("content")
 
-    # 2. Vytvoríme záznam
+    if not from_clerk or not to_clerk or not content:
+        frappe.throw("Missing required fields")
+
+    sender = _get_client_by_clerk_id(from_clerk)
+    recipient = _get_client_by_clerk_id(to_clerk)
+
     doc = frappe.get_doc({
-        "doctype": "Sprava Chatu",
-        "odosielatel": clerk_id,
-        "prijemca": prijemca_id,
-        "obsah": obsah,
-        "datum_cas": frappe.utils.now_datetime()
+        "doctype": "Sprava chatu",
+        "odosielatel": sender,
+        "prijemca": recipient,
+        "obsah": content,
+        "datum_cas": now_datetime(),
     })
-    doc.insert(ignore_permissions=True)
-    frappe.db.commit()
-    
-    return {"success": True, "name": doc.name}
 
-@frappe.whitelist(methods=["GET"], allow_guest=True)
-def nacitat_historiu(s_kym):
-    """Vráti správy medzi prihláseným userom a iným používateľom"""
-    clerk_id, _ = verify_clerk_bearer_and_get_sub()
-    
-    spravy = frappe.get_all(
-        "Sprava Chatu",
-        filters=[
-            ["odosielatel", "in", [clerk_id, s_kym]],
-            ["prijemca", "in", [clerk_id, s_kym]]
-        ],
-        fields=["odosielatel", "obsah", "datum_cas"],
-        order_by="datum_cas asc"
-    )
-    return spravy
+    doc.insert(ignore_permissions=True)
+
+    return {
+        "success": True,
+        "message_id": doc.name,
+        "timestamp": doc.datum_cas
+    }
