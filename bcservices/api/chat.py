@@ -39,12 +39,13 @@ def save_message(from_clerk=None, to_clerk=None, content=None, room_id=None):
     content = _sanitize_text(content)
 
     doc = frappe.get_doc({
-        "doctype": "Sprava chatu",
-        "odosielatel": sender,
-        "prijemca": recipient,
-        "obsah": content,
-        "datum_cas": now_datetime(),
-    })
+    "doctype": "Sprava Chatu",  # ⬅️ PRESNE ako v UI
+    "odosielatel": sender,
+    "prijemca": recipient,
+    "obsah": content,
+    "datum_cas": now_datetime(),
+	})
+
 
     if room_id and doc.meta.has_field("room_id"):
         doc.room_id = room_id
