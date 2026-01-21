@@ -38,16 +38,13 @@ def _sanitize_text(text: str) -> str:
 # ---------------------------------------------------------------------
 
 @frappe.whitelist(methods=["POST"], allow_guest=True)
-def save_message():
-    # ⛔ DOČASNE – LEN NA TEST
+def save_message(from_clerk=None, to_clerk=None, content=None, room_id=None):
+    """
+    ⚠️ TEST MODE
+    """
+
+    # ⛔ LEN NA TEST
     frappe.set_user("Administrator")
-
-    data = frappe.local.form_dict
-
-    from_clerk = data.get("from_clerk")
-    to_clerk = data.get("to_clerk")
-    content = data.get("content")
-    room_id = data.get("room_id")
 
     sender = _get_client_name_by_clerk_id(from_clerk)
     recipient = _get_client_name_by_clerk_id(to_clerk)
