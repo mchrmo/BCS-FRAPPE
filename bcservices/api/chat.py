@@ -3,50 +3,75 @@
 import frappe
 from frappe.utils import now_datetime
 
-def _require_internal_token():
-    token = frappe.get_request_header("X-Chat-Token")
-    expected = frappe.conf.get("chat_internal_token")
 
-    if not token or not expected or token != expected:
-        frappe.throw("Unauthorized", frappe.PermissionError)
+# ---------------------------------------------------------------------
+# HELPERS
+# ---------------------------------------------------------------------
 
+def _get_client_name_by_clerk_id(clerk_id: str) -> str:
+    """
+    Preloží Clerk ID → Klient.name
+    """
+    if not clerk_id:
+        frappe.throw("Missing clerk_id")
 
-def _get_client_by_clerk_id(clerk_id: str) -> str:
-    name = frappe.db.get_value("Klient", {"clerk_id": clerk_id}, "name")
+    name = frappe.db.get_value(
+        "Klient",
+        {"clerk_id": clerk_id},
+        "name"
+    )
+
     if not name:
         frappe.throw(f"Unknown clerk_id: {clerk_id}")
+
     return name
 
 
-@frappe.whitelist(methods=["POST"])
+def _sanitize_text(text: str) -> str:
+    """
+    Základná ochrana proti nezmyslom
+    """
+    text = (text or "").strip()
+    if not text:
+        frappe.throw("Empty message")
+    if len(text) > 5000:
+        frappe.throw("Message too long")
+    return text
+
+
+# ---------------------------------------------------------------------
+# API: SAVE MESSAGE
+# ---------------------------------------------------------------------
+
+@frappe.whitelist(methods=["POST"], allow_guest=True)
 def save_message():
     """
-    Volá IBA signaling server.
-    Header:
-      X-Chat-Token: <secret>
+    Uloží jednu chat správu.
 
-    Body:
-    {
-      "from": "<clerk_id>",
-      "to": "<clerk_id>",
-      "content": "...",
-      "room_id": "optional"
-    }
+    OČAKÁVANÉ PARAMETRE (form-data / JSON):
+      - from  : clerk_id odosielateľa
+      - to    : clerk_id príjemcu
+      - content : text správy
+      - room_id (optional)
+
+    Volá:
+      - signaling server
+      - (teoreticky aj iOS, ale neodporúčané)
     """
-    _require_internal_token()
 
     data = frappe.local.form_dict
 
     from_clerk = data.get("from")
     to_clerk = data.get("to")
     content = data.get("content")
+    room_id = data.get("room_id")
 
-    if not from_clerk or not to_clerk or not content:
-        frappe.throw("Missing required fields")
+    # --- validácia ---
+    sender = _get_client_name_by_clerk_id(from_clerk)
+    recipient = _get_client_name_by_clerk_id(to_clerk)
+    content = _sanitize_text(content)
 
-    sender = _get_client_by_clerk_id(from_clerk)
-    recipient = _get_client_by_clerk_id(to_clerk)
-
+    # --- vytvorenie správy ---
     doc = frappe.get_doc({
         "doctype": "Sprava chatu",
         "odosielatel": sender,
@@ -55,6 +80,10 @@ def save_message():
         "datum_cas": now_datetime(),
     })
 
+    # Ak máš field room_id, ulož ho
+    if room_id and doc.meta.has_field("room_id"):
+        doc.room_id = room_id
+
     doc.insert(ignore_permissions=True)
 
     return {
@@ -62,3 +91,76 @@ def save_message():
         "message_id": doc.name,
         "timestamp": doc.datum_cas
     }
+
+
+# ---------------------------------------------------------------------
+# API: GET CHAT HISTORY
+# ---------------------------------------------------------------------
+
+@frappe.whitelist(methods=["GET"], allow_guest=True)
+def get_history():
+    """
+    Vráti históriu chatu medzi dvoma používateľmi.
+
+    PARAMETRE:
+      - user_a : clerk_id
+      - user_b : clerk_id
+      - limit  : optional (default 50)
+
+    RETURN:
+      [
+        {
+          id,
+          from,
+          to,
+          content,
+          timestamp
+        }
+      ]
+    """
+
+    data = frappe.local.form_dict
+
+    clerk_a = data.get("user_a")
+    clerk_b = data.get("user_b")
+    limit = int(data.get("limit") or 50)
+
+    if not clerk_a or not clerk_b:
+        frappe.throw("Missing users")
+
+    client_a = _get_client_name_by_clerk_id(clerk_a)
+    client_b = _get_client_name_by_clerk_id(clerk_b)
+
+    rows = frappe.db.get_all(
+        "Sprava chatu",
+        filters=[
+            ["odosielatel", "in", [client_a, client_b]],
+            ["prijemca", "in", [client_a, client_b]],
+        ],
+        fields=[
+            "name",
+            "odosielatel",
+            "prijemca",
+            "obsah",
+            "datum_cas",
+        ],
+        order_by="datum_cas asc",
+        limit=limit,
+    )
+
+    # Prevod späť na clerk_id
+    clerk_map = {
+        client_a: clerk_a,
+        client_b: clerk_b,
+    }
+
+    return [
+        {
+            "id": r.name,
+            "from": clerk_map.get(r.odosielatel),
+            "to": clerk_map.get(r.prijemca),
+            "content": r.obsah,
+            "timestamp": r.datum_cas,
+        }
+        for r in rows
+    ]
