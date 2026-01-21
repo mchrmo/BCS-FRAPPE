@@ -16,7 +16,7 @@ def _get_client_name_by_clerk_id(clerk_id: str) -> str:
         frappe.throw("Missing clerk_id")
 
     name = frappe.db.get_value(
-        "Klienti",   # ⬅️ TVOJ DOCTYPE
+        "Klienti",
         {"clerk_id": clerk_id},
         "name"
     )
@@ -43,20 +43,25 @@ def _sanitize_text(text: str) -> str:
 
 
 # ---------------------------------------------------------------------
-# API: SAVE MESSAGE
+# API: SAVE MESSAGE (TEST MODE)
 # ---------------------------------------------------------------------
 
 @frappe.whitelist(methods=["POST"], allow_guest=True)
 def save_message():
     """
-    Uloží jednu chat správu.
+    ⚠️ TESTOVACIA VERZIA
+    - allow_guest=True
+    - set_user("Administrator") -> obchádza permissions
 
-    PARAMETRE (form-data alebo JSON):
+    PARAMETRE:
       - from     : clerk_id odosielateľa
       - to       : clerk_id príjemcu
       - content  : text správy
       - room_id  : optional
     """
+
+    # ⛔ DOČASNE – LEN NA TEST
+    frappe.set_user("Administrator")
 
     data = frappe.local.form_dict
 
@@ -83,7 +88,7 @@ def save_message():
     if room_id and doc.meta.has_field("room_id"):
         doc.room_id = room_id
 
-    doc.insert(ignore_permissions=True)
+    doc.insert()
 
     return {
         "success": True,
@@ -93,19 +98,23 @@ def save_message():
 
 
 # ---------------------------------------------------------------------
-# API: GET CHAT HISTORY
+# API: GET CHAT HISTORY (TIEŽ TEST MODE)
 # ---------------------------------------------------------------------
 
 @frappe.whitelist(methods=["GET"], allow_guest=True)
 def get_history():
     """
-    Vráti históriu chatu medzi dvoma používateľmi.
+    ⚠️ TESTOVACIA VERZIA
+    Vracia históriu chatu medzi dvoma používateľmi.
 
     PARAMETRE:
       - user_a : clerk_id
       - user_b : clerk_id
       - limit  : optional (default 50)
     """
+
+    # ⛔ DOČASNE – LEN NA TEST
+    frappe.set_user("Administrator")
 
     data = frappe.local.form_dict
 
@@ -136,7 +145,6 @@ def get_history():
         limit=limit,
     )
 
-    # mapovanie späť na clerk_id
     clerk_map = {
         client_a: clerk_a,
         client_b: clerk_b,
