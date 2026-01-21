@@ -16,6 +16,17 @@ from .utils import (
     get_settings,   # ⬅️ pridáme toto
 )
 
+
+@frappe.whitelist(methods=["GET"], allow_guest=True)
+def get_settings_public():
+    """
+    iOS volá: /api/method/bcservices.api.auth.get_settings_public
+    Vráti Clerk ID administrátora, aby klient vedel komu písať čet.
+    """
+    settings = get_settings()
+    return {
+        "admin_clerk_id": settings.admin_clerk_id
+    }
 # -----------------------------------------------------------------------------
 # PUBLIC API – iOS / CLIENTS
 # -----------------------------------------------------------------------------
