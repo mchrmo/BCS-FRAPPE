@@ -10,13 +10,13 @@ from frappe.utils import now_datetime
 
 def _get_client_name_by_clerk_id(clerk_id: str) -> str:
     """
-    Preloží Clerk ID → Klient.name
+    Preloží Clerk ID -> Klienti.name
     """
     if not clerk_id:
         frappe.throw("Missing clerk_id")
 
     name = frappe.db.get_value(
-        "Klient",
+        "Klienti",   # ⬅️ TVOJ DOCTYPE
         {"clerk_id": clerk_id},
         "name"
     )
@@ -29,13 +29,16 @@ def _get_client_name_by_clerk_id(clerk_id: str) -> str:
 
 def _sanitize_text(text: str) -> str:
     """
-    Základná ochrana proti nezmyslom
+    Základná validácia textu správy
     """
     text = (text or "").strip()
+
     if not text:
         frappe.throw("Empty message")
+
     if len(text) > 5000:
         frappe.throw("Message too long")
+
     return text
 
 
@@ -48,15 +51,11 @@ def save_message():
     """
     Uloží jednu chat správu.
 
-    OČAKÁVANÉ PARAMETRE (form-data / JSON):
-      - from  : clerk_id odosielateľa
-      - to    : clerk_id príjemcu
-      - content : text správy
-      - room_id (optional)
-
-    Volá:
-      - signaling server
-      - (teoreticky aj iOS, ale neodporúčané)
+    PARAMETRE (form-data alebo JSON):
+      - from     : clerk_id odosielateľa
+      - to       : clerk_id príjemcu
+      - content  : text správy
+      - room_id  : optional
     """
 
     data = frappe.local.form_dict
@@ -71,7 +70,7 @@ def save_message():
     recipient = _get_client_name_by_clerk_id(to_clerk)
     content = _sanitize_text(content)
 
-    # --- vytvorenie správy ---
+    # --- vytvorenie dokumentu ---
     doc = frappe.get_doc({
         "doctype": "Sprava chatu",
         "odosielatel": sender,
@@ -80,7 +79,7 @@ def save_message():
         "datum_cas": now_datetime(),
     })
 
-    # Ak máš field room_id, ulož ho
+    # ak máš pole room_id v Doctype Sprava chatu
     if room_id and doc.meta.has_field("room_id"):
         doc.room_id = room_id
 
@@ -89,7 +88,7 @@ def save_message():
     return {
         "success": True,
         "message_id": doc.name,
-        "timestamp": doc.datum_cas
+        "timestamp": doc.datum_cas,
     }
 
 
@@ -106,17 +105,6 @@ def get_history():
       - user_a : clerk_id
       - user_b : clerk_id
       - limit  : optional (default 50)
-
-    RETURN:
-      [
-        {
-          id,
-          from,
-          to,
-          content,
-          timestamp
-        }
-      ]
     """
 
     data = frappe.local.form_dict
@@ -148,7 +136,7 @@ def get_history():
         limit=limit,
     )
 
-    # Prevod späť na clerk_id
+    # mapovanie späť na clerk_id
     clerk_map = {
         client_a: clerk_a,
         client_b: clerk_b,
