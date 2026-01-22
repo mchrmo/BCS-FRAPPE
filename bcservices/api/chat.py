@@ -58,6 +58,30 @@ def save_message(from_clerk=None, to_clerk=None, content=None, room_id=None):
         "timestamp": doc.datum_cas,
     }
 
+@frappe.whitelist(methods=["POST"], allow_guest=True)
+def upload_file():
+    frappe.set_user("Administrator")
+
+    if "file" not in frappe.request.files:
+        frappe.throw("No file provided")
+
+    uploaded = frappe.request.files["file"]
+
+    file_doc = frappe.get_doc({
+        "doctype": "File",
+        "file_name": uploaded.filename,
+        "content": uploaded.stream.read(),
+        "is_private": 1
+    })
+    file_doc.save(ignore_permissions=True)
+
+    return {
+        "success": True,
+        "file_url": file_doc.file_url,
+        "file_name": file_doc.file_name
+    }
+
+
 @frappe.whitelist(methods=["GET"], allow_guest=True)
 def get_messages(user_a=None, user_b=None, limit=100):
     # ⚠️ LEN NA TEST
