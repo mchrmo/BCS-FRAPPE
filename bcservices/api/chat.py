@@ -57,3 +57,45 @@ def save_message(from_clerk=None, to_clerk=None, content=None, room_id=None):
         "message_id": doc.name,
         "timestamp": doc.datum_cas,
     }
+
+@frappe.whitelist(methods=["GET"], allow_guest=True)
+def get_messages(user_a=None, user_b=None, limit=100):
+    # ⚠️ LEN NA TEST
+    frappe.set_user("Administrator")
+
+    if not user_a or not user_b:
+        frappe.throw("Missing user_a or user_b")
+
+    client_a = _get_client_name_by_clerk_id(user_a)
+    client_b = _get_client_name_by_clerk_id(user_b)
+
+    limit = int(limit or 100)
+
+    messages = frappe.get_all(
+        "Sprava Chatu",
+        filters=[
+            ["odosielatel", "in", [client_a, client_b]],
+            ["prijemca", "in", [client_a, client_b]],
+        ],
+        fields=[
+            "odosielatel",
+            "prijemca",
+            "obsah",
+            "datum_cas",
+        ],
+        order_by="datum_cas asc",
+        limit_page_length=limit,
+    )
+
+    return {
+        "success": True,
+        "messages": [
+            {
+                "from": user_a if m["odosielatel"] == client_a else user_b,
+                "to": user_b if m["prijemca"] == client_b else user_a,
+                "content": m["obsah"],
+                "timestamp": m["datum_cas"].isoformat(),
+            }
+            for m in messages
+        ],
+    }
