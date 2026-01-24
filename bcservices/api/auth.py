@@ -252,6 +252,55 @@ def after_insert_bc_pouzivatel(doc, method=None):
     except Exception as e:
         frappe.log_error(f"Clerk create failed: {e}", "BC Clerk Sync")
 
+def after_insert_bc_poradca(doc, method=None):
+    if getattr(doc, "clerk_id", None):
+        return
+    if not doc.email or not doc.heslo:
+        return
+
+    try:
+        res = clerk_api(
+            "/v1/users",
+            method="POST",
+            json_body={
+                "email_address": [doc.email],
+                "password": doc.heslo,
+                "username": _normalize_username_base(doc.email),
+                "public_metadata": {
+                    "role": "admin"
+                }
+            }
+        )
+
+        clerk_id = res.get("id")
+        if clerk_id:
+            frappe.db.set_value("Poradca", doc.name, "clerk_id", clerk_id)
+
+    except Exception as e:
+        frappe.log_error(f"Clerk create poradca failed: {e}", "BC Clerk Sync")
+
+
+def on_update_bc_poradca(doc, method=None):
+    if not doc.clerk_id:
+        return
+
+    try:
+        patch = {
+            "public_metadata": {"role": "admin"},
+            "email_address": [doc.email],
+        }
+
+        if doc.heslo:
+            patch["password"] = doc.heslo
+
+        clerk_api(
+            f"/v1/users/{doc.clerk_id}",
+            method="PATCH",
+            json_body=patch
+        )
+
+    except Exception as e:
+        frappe.log_error(f"Clerk update poradca failed: {e}", "BC Clerk Sync")
 
 
 def on_update_bc_pouzivatel(doc, method=None):
@@ -269,3 +318,5 @@ def on_update_bc_pouzivatel(doc, method=None):
         )
     except Exception as e:
         frappe.log_error(f"Clerk update failed: {e}", "BC Clerk Sync")
+
+        
