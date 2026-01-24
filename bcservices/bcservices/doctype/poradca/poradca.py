@@ -20,7 +20,7 @@ class Poradca(Document):
         boli vám vytvorené prihlasovacie údaje do systému.<br><br>
 
         📧 <b>Email:</b> {self.email}<br>
-        🔐 <b>Heslo:</b> {password_safe}<br><br>
+		🔐 <b>Dočasný prístupový kód:</b> {password_safe}<br><br>
 
         Prosím, po prihlásení si heslo zmeňte.<br><br>
         S pozdravom,<br>
