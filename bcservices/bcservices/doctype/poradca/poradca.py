@@ -1,4 +1,5 @@
 import frappe
+import html
 from frappe.model.document import Document
 
 class Poradca(Document):
@@ -11,18 +12,18 @@ class Poradca(Document):
 
         subject = "Vaše prihlasovacie údaje"
 
+       # HTML-safe verzia hesla
+        password_safe = html.escape(self.heslo or "")
+
+        subject = "Vaše prihlasovacie údaje"
         message = f"""
-Dobrý deň,
-
-boli vám vytvorené prihlasovacie údaje do systému.
-
-Email: {self.email}
-Heslo: {self.heslo}
-
-Prosím, po prihlásení si heslo zmeňte.
-
-S pozdravom,
-Váš tím
+        Dobrý deň {self.username or 'používateľ'},<br><br>
+        boli vám vytvorené prihlasovacie údaje do systému.<br><br>
+        📧 <b>Email:</b> {email}<br>
+        🔐 <b>Heslo:</b> {password_safe}<br><br>
+        Prosím, prihláste sa do systému a heslo si v prípade potreby zmeňte.<br><br>
+        S pozdravom,<br>
+        Váš tím
         """
 
         frappe.sendmail(
