@@ -46,9 +46,7 @@ def pick_active_token_for_holder(klient_name: str) -> str | None:
 # ----------------------------------------------------------------------
 @frappe.whitelist(methods=["POST"], allow_guest=True)
 def start():
-    settings = get_settings()
-    admin_clerk_id = settings.admin_clerk_id
-
+    # 1. Overenie, kto volá (Clerk JWT)
     clerk_id, _ = verify_clerk_bearer_and_get_sub()
 
     data = frappe.local.form_dict or {}
@@ -58,37 +56,22 @@ def start():
     if not caller_clerk or not advisor_clerk:
         frappe.throw(_("Missing callerId or advisorId"))
 
-    # Bezpečnosť
-    if clerk_id != caller_clerk and clerk_id != admin_clerk_id:
-        frappe.throw(_("Forbidden"), frappe.PermissionError)
+    # 2. Bezpečnosť: Overený používateľ musí byť ten, kto je uvedený ako volajúci
+    if clerk_id != caller_clerk:
+        frappe.throw(_("Forbidden: You can only start calls as yourself"), frappe.PermissionError)
 
-    # alias "admin"
-    if advisor_clerk == "admin":
-        advisor_clerk = admin_clerk_id
-
-    # Lookup aktérov
+    # 3. Lookup aktérov (zistíme, kto je Klient a kto Poradca)
     caller_name, caller_type = get_actor_name_and_type(caller_clerk)
     advisor_name, advisor_type = get_actor_name_and_type(advisor_clerk)
 
     if advisor_type != "Poradca":
-        frappe.throw("Advisor must be Poradca")
+        frappe.throw("Cieľ hovoru musí byť Poradca")
 
     now = now_datetime()
 
-    # ------------------------------------------------------------------
-    # ZNAČKA KLIENTA (ostáva zachované správanie)
-    # ------------------------------------------------------------------
-    zn_caller = frappe.db.get_value("Klient", {"clerk_id": caller_clerk}, "znacka_klienta") if caller_type == "Klient" else None
-    zn_advisor = frappe.db.get_value("Klient", {"clerk_id": advisor_clerk}, "znacka_klienta")
-    finalna_znacka = zn_caller or zn_advisor
-
-    # ------------------------------------------------------------------
-    # TOKEN LOGIKA (PIATOK)
-    # ------------------------------------------------------------------
+    # 4. TOKEN LOGIKA (PIATOK) - ak volá klient, kontrolujeme tokeny
     used_token = None
-    token_required = is_friday(now) and caller_clerk != admin_clerk_id
-
-    if token_required and caller_type == "Klient":
+    if is_friday(now) and caller_type == "Klient":
         used_token = pick_active_token_for_holder(caller_name)
         if not used_token:
             return {
@@ -96,9 +79,7 @@ def start():
                 "error": "V piatok je potrebný token. Nemáte dostupné minúty."
             }
 
-    # ------------------------------------------------------------------
-    # VYTVORENIE HOVORU
-    # ------------------------------------------------------------------
+    # 5. VYTVORENIE ZÁZNAMU V DENNÍKU
     call = frappe.get_doc({
         "doctype": "Dennik hovorov",
         "volajuci": caller_name,
@@ -109,58 +90,29 @@ def start():
     })
     call.insert(ignore_permissions=True)
 
-    # ------------------------------------------------------------------
-    # GOOGLE CALENDAR
-    # ------------------------------------------------------------------
-    if not used_token and finalna_znacka:
-        try:
-            from .google_calendar import create_call_event
-            event_id = create_call_event(call, finalna_znacka)
-            if event_id:
-                call.google_event_id = event_id
-                call.save(ignore_permissions=True)
-        except Exception:
-            frappe.log_error(frappe.get_traceback(), "Google Calendar Start Error")
-
-   # ------------------------------------------------------------------
-    # VOIP PUSH (ZJEDNODUŠENÉ PO ZMENE DOCTYPE)
-    # ------------------------------------------------------------------
+    # 6. VOIP PUSH konkrétnemu poradcovi, ktorému klient volá
     try:
-        # Načítame dokument poradcu (advisor_type = "Poradca")
-        adv_doc = frappe.get_doc(advisor_type, advisor_name)
-        
-        # Po tvojej úprave JSONu sa pole volá už len 'zariadenie'
+        adv_doc = frappe.get_doc("Poradca", advisor_name)
+        # Pole sa volá 'zariadenie' po tvojej úprave
         device_rows = adv_doc.get("zariadenie") or []
         
-        if not device_rows:
-            frappe.logger().warning(f"⚠️ Poradca {advisor_name} nemá v tabuľke žiadne zariadenia.")
-
         for row in device_rows:
             if row.voip_token:
-                try:
-                    # Log pre kontrolu v Error Logu
-                    frappe.log_error(f"Odosielam VoIP push na token: {row.voip_token[:20]}...", "VoIP Debug")
-                    
-                    send_voip_push(row.voip_token, {
-                        "callId": call.name,
-                        "callerId": caller_clerk,
-                        "callerName": caller_name,
-                        "title": "Prichádzajúci hovor",
-                        "body": f"Volá {caller_name}",
-                    })
-                except Exception as e:
-                    frappe.log_error(f"VoIP Push failed: {str(e)}", "BC Call Error")
-                    
+                send_voip_push(row.voip_token, {
+                    "callId": call.name,
+                    "callerId": caller_clerk,
+                    "callerName": caller_name,
+                    "title": "Prichádzajúci hovor",
+                    "body": f"Volá {caller_name}",
+                })
     except Exception as e:
-        frappe.log_error(f"Chyba pri získavaní zariadení: {str(e)}", "BC Call Error")
+        frappe.log_error(f"VoIP Push failed for {advisor_name}: {str(e)}", "BC Call Error")
 
     return {
         "success": True,
         "callId": call.name,
-        "tokenUsed": used_token,
         "advisorName": advisor_name
     }
-
 
 # ----------------------------------------------------------------------
 # ACCEPT CALL
