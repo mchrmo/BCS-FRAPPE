@@ -22,6 +22,10 @@ def register_device():
     if not user_doc:
         frappe.throw("Unknown user")
 
+    # --- TOTO JE TA MOŽNÁ CHYBA ---
+    # Musíme sa uistiť, že objekt user_doc má čerstvé metadáta z DB
+    user_doc.reload() 
+
     upsert_child_device_for_user(
         user_doc=user_doc,
         voip_token=voip_token,
