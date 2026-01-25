@@ -43,113 +43,159 @@ def pick_active_token_for_holder(klient_name: str) -> str | None:
 
 @frappe.whitelist(methods=["POST"], allow_guest=True)
 def start():
+    # ------------------------------------------------------------------
+    # 1. AUTH
+    # ------------------------------------------------------------------
     clerk_id, _ = verify_clerk_bearer_and_get_sub()
-
     data = frappe.local.form_dict or {}
+
     caller_clerk = data.get("callerId")
     advisor_clerk = data.get("advisorId")
 
     frappe.log_error(
         title="CALL START DEBUG – INPUT",
         message=f"""
-AUTH clerk_id: {clerk_id}
-callerId: {caller_clerk}
-advisorId: {advisor_clerk}
-RAW DATA: {data}
-"""
+        AUTH clerk_id: {clerk_id}
+        callerId: {caller_clerk}
+        advisorId: {advisor_clerk}
+        RAW DATA: {data}
+        """
     )
 
     if not caller_clerk or not advisor_clerk:
         frappe.throw("Missing callerId or advisorId")
 
     if clerk_id != caller_clerk:
-        frappe.throw("Forbidden")
+        frappe.throw("Forbidden", frappe.PermissionError)
 
-    # ---- ACTORS ----
+    # ------------------------------------------------------------------
+    # 2. ACTORS
+    # ------------------------------------------------------------------
     caller_name, caller_type = get_actor_name_and_type(caller_clerk)
     advisor_name, advisor_type = get_actor_name_and_type(advisor_clerk)
 
     frappe.log_error(
         title="CALL START DEBUG – ACTORS",
         message=f"""
-CALLER:
-  clerk_id={caller_clerk}
-  name={caller_name}
-  type={caller_type}
+        CALLER:
+          clerk_id={caller_clerk}
+          name={caller_name}
+          type={caller_type}
 
-ADVISOR:
-  clerk_id={advisor_clerk}
-  name={advisor_name}
-  type={advisor_type}
-"""
+        ADVISOR:
+          clerk_id={advisor_clerk}
+          name={advisor_name}
+          type={advisor_type}
+        """
     )
 
     if advisor_type != "Poradca":
-        frappe.throw("Target is not Poradca")
+        frappe.throw("Target must be Poradca")
 
+    # ------------------------------------------------------------------
+    # 3. TOKEN CHECK (FRIDAY)
+    # ------------------------------------------------------------------
     now = now_datetime()
+    used_token = None
 
+    if is_friday(now) and caller_type == "Klient":
+        used_token = pick_active_token_for_holder(caller_name)
+        if not used_token:
+            return {
+                "success": False,
+                "error": "V piatok je potrebný token. Nemáte dostupné minúty."
+            }
+
+    # ------------------------------------------------------------------
+    # 4. CREATE CALL
+    # ------------------------------------------------------------------
     call = frappe.get_doc({
         "doctype": "Dennik hovorov",
         "volajuci": caller_name,
         "poradca": advisor_name,
         "zaciatok_datum": now.date(),
         "zaciatok_cas": now.strftime("%H:%M:%S"),
+        "pouzity_token": used_token,
     })
     call.insert(ignore_permissions=True)
 
-    # ---- DEVICES ----
-    adv_doc = frappe.get_doc("Poradca", advisor_name)
-    device_rows = adv_doc.get("zariadenie") or []
-
     frappe.log_error(
-        title="CALL START DEBUG – DEVICES FOUND",
+        title="CALL START DEBUG – CALL CREATED",
         message=f"""
-Poradca: {advisor_name}
-Devices count: {len(device_rows)}
-
-Devices:
-{chr(10).join([f"- voip_token={d.voip_token[:12] if d.voip_token else None} apns={bool(d.apns_token)}" for d in device_rows])}
-"""
+        call.name = {call.name}
+        volajuci = {caller_name}
+        poradca = {advisor_name}
+        """
     )
 
-    # ---- SEND PUSH ----
-    sent = 0
+    # ------------------------------------------------------------------
+    # 5. LOAD DEVICES
+    # ------------------------------------------------------------------
+    device_rows = []
+
+    try:
+        adv_doc = frappe.get_doc("Poradca", advisor_name)
+        device_rows = adv_doc.get("zariadenie") or []
+
+        frappe.log_error(
+            title="CALL START DEBUG – DEVICES",
+            message=f"""
+            advisor={advisor_name}
+            devices_found={len(device_rows)}
+            tokens={[d.voip_token for d in device_rows]}
+            """
+        )
+
+    except Exception:
+        frappe.log_error(
+            title="CALL START DEBUG – DEVICE LOAD FAILED",
+            message=frappe.get_traceback()
+        )
+
+    # ------------------------------------------------------------------
+    # 6. SEND VOIP PUSH
+    # ------------------------------------------------------------------
     for row in device_rows:
         if not row.voip_token:
             continue
 
-        payload = {
-            "aps": {
-                "content-available": 1
-            },
-            "callId": call.name,
-            "callerId": caller_clerk,
-            "callerName": caller_name,
-        }
+        try:
+            send_voip_push(
+                row.voip_token,
+                {
+                    "aps": {
+                        "content-available": 1
+                    },
+                    "callId": call.name,
+                    "callerId": caller_clerk,
+                    "callerName": caller_name,
+                }
+            )
 
-        frappe.log_error(
-            title="CALL START DEBUG – SENDING VOIP PUSH",
-            message=f"""
-TO TOKEN: {row.voip_token}
-PAYLOAD:
-{payload}
-"""
-        )
+            frappe.log_error(
+                title="CALL START DEBUG – PUSH SENT",
+                message=f"""
+                to={advisor_name}
+                token={row.voip_token[:12]}…
+                callId={call.name}
+                """
+            )
 
-        send_voip_push(row.voip_token, payload)
-        sent += 1
+        except Exception:
+            frappe.log_error(
+                title="CALL START DEBUG – PUSH FAILED",
+                message=frappe.get_traceback()
+            )
 
-    frappe.log_error(
-        title="CALL START DEBUG – DONE",
-        message=f"VoIP push sent to {sent} device(s)"
-    )
-
+    # ------------------------------------------------------------------
+    # 7. FINAL RETURN (🔥 ABSOLÚTNE KRITICKÉ)
+    # ------------------------------------------------------------------
     return {
         "success": True,
         "callId": call.name,
         "advisorName": advisor_name
     }
+
 
 
 
