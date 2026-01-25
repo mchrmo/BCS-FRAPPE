@@ -24,7 +24,7 @@
   },
   {
    "fieldname": "heslo",
-   "fieldtype": "Password",
+   "fieldtype": "Data",
    "label": "Heslo"
   },
   {
