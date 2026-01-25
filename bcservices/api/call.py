@@ -134,6 +134,9 @@ def start():
     for device in devices:
         if device.voip_token:
             try:
+                # Log pre debugging - uvidíte v Bench logoch, či vôbec niečo posielate
+                frappe.logger().info(f"Sending VoIP push to: {device.voip_token}")
+                
                 send_voip_push(device.voip_token, {
                     "callId": call.name,
                     "callerId": caller_clerk,
@@ -141,8 +144,8 @@ def start():
                     "title": "Prichádzajúci hovor",
                     "body": f"Volá {caller_name}",
                 })
-            except Exception:
-                pass
+            except Exception as e:
+                frappe.log_error(f"Push failed for {device.voip_token}: {str(e)}", "VoIP Push Error")
 
     return {
         "success": True,
