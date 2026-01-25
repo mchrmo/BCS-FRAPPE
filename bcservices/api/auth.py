@@ -348,7 +348,7 @@ def get_my_advisors():
                 "has_voip": has_voip
             })
         except frappe.DoesNotExistError:
-            # Ak by bol poradca vymazaný, ale odkaz v klientovi zostal
+            # Ak by bol poradca vymazaný, ale odkaz v klientovi zosta
             continue
 
     return {
