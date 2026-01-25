@@ -248,21 +248,19 @@ def send_voip_push(device_token: str, payload: dict):
         "content-type": "application/json",
     }
 
-    # 🔴 TENTO LOG TAM TERAZ PRIDAJ
     frappe.log_error(
-        title="BC VOIP PUSH DEBUG",
-        message=f"""
-        PROD: {prod}
-        HOST: {host}
-        URL: {url}
+    title="BC VOIP PUSH DEBUG",
+    message=f"""
+    PROD: {prod}
+    HOST: {host}
+    APNS-TOPIC: {headers.get("apns-topic")}
+    DEVICE TOKEN: {device_token}
 
-        APNS-TOPIC: {headers.get("apns-topic")}
-        DEVICE TOKEN: {device_token}
+    PAYLOAD:
+    {json.dumps(payload, indent=2)}
+    """
+)
 
-        PAYLOAD:
-        {json.dumps(payload, indent=2)}
-        """
-    )
 
     with httpx.Client(http2=True, timeout=10) as client:
         resp = client.post(url, headers=headers, content=json.dumps(payload))
