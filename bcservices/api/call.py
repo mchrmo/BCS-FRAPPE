@@ -91,30 +91,44 @@ def start():
     call.insert(ignore_permissions=True)
 
     # 6. VOIP PUSH konkrétnemu poradcovi, ktorému klient volá
-    try:
-        adv_doc = frappe.get_doc("Poradca", advisor_name)
-        # Pole sa volá 'zariadenie' po tvojej úprave
-        device_rows = adv_doc.get("zariadenie") or []
-        
-        for row in device_rows:
-            if row.voip_token:
-                send_voip_push(row.voip_token, {
-				    "aps": {
-				        "content-available": 1
-				    },
-				    "callId": call.name,
-				    "callerId": caller_clerk,
-				    "callerName": caller_name,
-				})
+    # 6. VOIP PUSH konkrétnemu poradcovi, ktorému klient volá
+try:
+    adv_doc = frappe.get_doc("Poradca", advisor_name)
+    device_rows = adv_doc.get("zariadenie") or []
 
-    except Exception as e:
-        frappe.log_error(f"VoIP Push failed for {advisor_name}: {str(e)}", "BC Call Error")
+    # 🔴 DEBUG – uvidíme, čo backend VIDÍ
+    frappe.log_error(
+        title="BC CALL DEBUG",
+        message=f"""
+Advisor name: {advisor_name}
+Devices count: {len(device_rows)}
+Devices raw: {device_rows}
+"""
+    )
 
-    return {
-        "success": True,
-        "callId": call.name,
-        "advisorName": advisor_name
-    }
+    for row in device_rows:
+        frappe.log_error(
+            title="BC DEVICE DEBUG",
+            message=f"voip_token={row.voip_token}"
+        )
+
+        if row.voip_token:
+            send_voip_push(
+                row.voip_token,
+                {
+                    "aps": {"content-available": 1},
+                    "callId": call.name,
+                    "callerId": caller_clerk,
+                    "callerName": caller_name,
+                }
+            )
+
+except Exception as e:
+    frappe.log_error(
+        title="BC CALL ERROR",
+        message=str(e)
+    )
+
 
 # ----------------------------------------------------------------------
 # ACCEPT CALL
