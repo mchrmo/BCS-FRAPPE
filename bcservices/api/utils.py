@@ -262,6 +262,20 @@ def send_voip_push(device_token: str, payload: dict):
 
     return {"apns_id": resp.headers.get("apns-id")}
 
+def get_actor_by_clerk_id(clerk_id: str):
+    """
+    Vráti tuple: (doctype, doc)
+    """
+    poradca = frappe.db.get_value("Poradca", {"clerk_id": clerk_id}, "name")
+    if poradca:
+        return "Poradca", frappe.get_doc("Poradca", poradca)
+
+    klient = frappe.db.get_value("Klient", {"clerk_id": clerk_id}, "name")
+    if klient:
+        return "Klient", frappe.get_doc("Klient", klient)
+
+    return None, None
+
 # ---------------------------------------------------
 # Device helper
 # ---------------------------------------------------
