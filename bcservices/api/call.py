@@ -91,18 +91,15 @@ def start():
     call.insert(ignore_permissions=True)
 
     # 6. VOIP PUSH konkrétnemu poradcovi, ktorému klient volá
-    # 6. VOIP PUSH konkrétnemu poradcovi, ktorému klient volá
 try:
     adv_doc = frappe.get_doc("Poradca", advisor_name)
     device_rows = adv_doc.get("zariadenie") or []
 
-    # 🔴 DEBUG – uvidíme, čo backend VIDÍ
     frappe.log_error(
         title="BC CALL DEBUG",
         message=f"""
 Advisor name: {advisor_name}
 Devices count: {len(device_rows)}
-Devices raw: {device_rows}
 """
     )
 
@@ -128,6 +125,7 @@ except Exception as e:
         title="BC CALL ERROR",
         message=str(e)
     )
+
 
 
 # ----------------------------------------------------------------------
