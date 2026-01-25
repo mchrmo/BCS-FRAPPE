@@ -248,18 +248,20 @@ def send_voip_push(device_token: str, payload: dict):
         "content-type": "application/json",
     }
 
-    # 🔴 MUSÍ BYŤ PRESNE TU (vo vnútri funkcie)
+    # 🔴 TENTO LOG TAM TERAZ PRIDAJ
     frappe.log_error(
         title="BC VOIP PUSH DEBUG",
         message=f"""
-PROD: {prod}
-HOST: {host}
-APNS-TOPIC: {headers.get("apns-topic")}
-DEVICE TOKEN: {device_token}
+        PROD: {prod}
+        HOST: {host}
+        URL: {url}
 
-PAYLOAD:
-{json.dumps(payload, indent=2)}
-"""
+        APNS-TOPIC: {headers.get("apns-topic")}
+        DEVICE TOKEN: {device_token}
+
+        PAYLOAD:
+        {json.dumps(payload, indent=2)}
+        """
     )
 
     with httpx.Client(http2=True, timeout=10) as client:
@@ -275,7 +277,6 @@ PAYLOAD:
         frappe.throw(f"APNs error {resp.status_code}: {detail}")
 
     return {"apns_id": resp.headers.get("apns-id")}
-
 
 
 def get_actor_by_clerk_id(clerk_id: str):
