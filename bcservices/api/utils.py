@@ -281,29 +281,32 @@ def get_actor_by_clerk_id(clerk_id: str):
 # ---------------------------------------------------
 
 def upsert_child_device_for_user(user_doc, voip_token=None, apns_token=None):
-    field_name = "zariadenie"
-    
-    # 1. Zmažeme tento konkrétny token u kohokoľvek iného (zabezpečí unique v praxi)
+    # odstráň rovnaký token inde (OK, to máš správne)
     if voip_token:
-        frappe.db.delete("Zariadenie", {"voip_token": voip_token, "parent": ["!=", user_doc.name]})
-    
-    # 2. Skontrolujeme, či tento user už má tento token
-    exists = frappe.db.exists("Zariadenie", {
-        "parent": user_doc.name,
-        "voip_token": voip_token
-    })
+        frappe.db.sql("""
+            DELETE FROM `tabZariadenie`
+            WHERE voip_token=%s
+              AND NOT (parent=%s AND parenttype=%s)
+        """, (voip_token, user_doc.name, user_doc.doctype))
 
-    if not exists:
-        # 3. POUŽIJEME PRIAMY VKLAD (toto nespôsobí TimestampMismatchError)
-        new_device = frappe.get_doc({
-            "doctype": "Zariadenie",
-            "parent": user_doc.name,
-            "parenttype": user_doc.doctype,
-            "parentfield": field_name,
-            "voip_token": voip_token,
-            "apns_token": apns_token
-        })
-        new_device.insert(ignore_permissions=True)
-        frappe.db.commit()
-        
+    user_doc.reload()
+
+    devices = user_doc.get("zariadenie") or []
+
+    # update existujúce
+    for d in devices:
+        if voip_token and d.voip_token == voip_token:
+            if apns_token:
+                d.apns_token = apns_token
+            user_doc.save(ignore_permissions=True)
+            frappe.db.commit()
+            return True
+
+    # append nové zariadenie
+    row = user_doc.append("zariadenie", {})
+    row.voip_token = voip_token
+    row.apns_token = apns_token
+
+    user_doc.save(ignore_permissions=True)
+    frappe.db.commit()
     return True
