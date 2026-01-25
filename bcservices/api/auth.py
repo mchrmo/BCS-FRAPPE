@@ -48,41 +48,38 @@ def get_settings_public():
 
 @frappe.whitelist(methods=["POST"], allow_guest=True)
 def sync_user():
-    """
-    iOS → /api/method/bcservices.api.auth.sync_user
-    Authorization: X-Clerk-Authorization: Bearer <jwt>
-
-    - Overí Clerk JWT
-    - Nájde alebo vytvorí BC klienta
-    - Nastaví default rolu 'client' IBA ak pole 'role' v metadata NEEXISTUJE.
-    """
-
     clerk_id, payload = verify_clerk_bearer_and_get_sub()
 
-    # Create or update BC user
+    # 🔹 načítaj Clerk user
+    u = clerk_api(f"/v1/users/{clerk_id}")
+    role = (u.get("public_metadata") or {}).get("role")
+
+    # 🔴 AK JE PORADCA → NIČ NEVYTVÁRAJ
+    if role == "admin":
+        return {
+            "success": True,
+            "userId": clerk_id,
+            "role": "admin"
+        }
+
+    # 🟢 IBA CLIENT
     doc = ensure_bc_user_by_clerk(clerk_id)
 
-    try:
-        u = clerk_api(f"/v1/users/{clerk_id}")
-        pub = (u.get("public_metadata") or {})
+    # default role handling (ako máš teraz)
+    pub = u.get("public_metadata") or {}
+    if "role" not in pub:
+        pub["role"] = "client"
+        clerk_api(
+            f"/v1/users/{clerk_id}",
+            method="PATCH",
+            json_body={"public_metadata": pub}
+        )
 
-        # 🔥 AK pole "role" NEEXISTUJE – nastavíme default
-        # Nie: if not existing_role
-        if "role" not in pub:
-            pub["role"] = "client"
-
-            clerk_api(
-                f"/v1/users/{clerk_id}",
-                method="PATCH",
-                json_body={"public_metadata": pub}
-            )
-
-        # Ak pole role existuje (admin, client, čokoľvek) → nemeníme
-
-    except Exception as e:
-        frappe.log_error(f"Clerk role sync failed: {e}", "BC Clerk Sync")
-
-    return {"success": True, "userId": clerk_id}
+    return {
+        "success": True,
+        "userId": clerk_id,
+        "role": "client"
+    }
 
 
 # -----------------------------------------------------------------------------
