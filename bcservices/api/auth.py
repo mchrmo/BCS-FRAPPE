@@ -262,7 +262,7 @@ def after_insert_bc_poradca(doc, method=None):
             json_body={
                 "email_address": [doc.email],
                 "password": doc.heslo,
-                "username": _normalize_username_base(doc.email),
+                "username": _normalize_username_base(doc.meno),
                 "public_metadata": {
                     "role": "admin"
                 }

@@ -283,38 +283,28 @@ def get_actor_by_clerk_id(clerk_id: str):
 def upsert_child_device_for_user(user_doc, voip_token=None, apns_token=None):
     modified = False
 
-    # remove duplicates
+    # 1. Odstránenie duplikátov: ak tento token už má niekto iný, vymažeme ho odtiaľ
     if voip_token:
-        rows = frappe.get_all(
-            "Zariadenie",
-            filters={"voip_token": voip_token},
-            fields=["name", "parent"]
-        )
-        for r in rows:
-            if r["parent"] != user_doc.name:
-                frappe.db.delete("Zariadenie", {"name": r["name"]})
+        frappe.db.delete("Zariadenie", {"voip_token": voip_token, "parent": ["!=", user_doc.name]})
+    if apns_token:
+        frappe.db.delete("Zariadenie", {"apns_token": apns_token, "parent": ["!=", user_doc.name]})
 
-    # find existing
-    found = None
-    for ch in user_doc.get("zariadenie") or []:
-        if voip_token and ch.voip_token == voip_token:
-            found = ch
-            break
-        if apns_token and ch.apns_token == apns_token:
-            found = ch
+    # 2. Kontrola, či zariadenie už existuje v Child Table (podľa screenshotu sa volá 'zariadenia')
+    found = False
+    # POZOR: v screenshote vidím label "Zariadenia", skontroluj či je fieldname 'zariadenia'
+    devices = user_doc.get("zariadenia") or [] 
+    
+    for ch in devices:
+        if (voip_token and ch.voip_token == voip_token) or (apns_token and ch.apns_token == apns_token):
+            found = True
+            if voip_token: ch.voip_token = voip_token
+            if apns_token: ch.apns_token = apns_token
+            modified = True
             break
 
-    if found:
-        if voip_token and found.voip_token != voip_token:
-            found.voip_token = voip_token
-            modified = True
-        if apns_token and found.apns_token != apns_token:
-            found.apns_token = apns_token
-            modified = True
-
-    else:
-        user_doc.append("zariadenie", {
-            "doctype": "Zariadenie",
+    # 3. Ak sa nenašlo, pridáme nové
+    if not found:
+        user_doc.append("zariadenia", {
             "voip_token": voip_token,
             "apns_token": apns_token
         })
@@ -322,5 +312,6 @@ def upsert_child_device_for_user(user_doc, voip_token=None, apns_token=None):
 
     if modified:
         user_doc.save(ignore_permissions=True)
+        frappe.db.commit()
 
     return True
