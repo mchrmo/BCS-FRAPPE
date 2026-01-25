@@ -235,7 +235,6 @@ def send_voip_push(device_token: str, payload: dict):
 
     bundle_id = settings.apn_bundle_id
     prod = cint(settings.apn_production) == 1
-
     host = "https://api.push.apple.com" if prod else "https://api.sandbox.push.apple.com"
     url = f"{host}/3/device/{device_token}"
 
@@ -248,35 +247,35 @@ def send_voip_push(device_token: str, payload: dict):
         "content-type": "application/json",
     }
 
-    # 🔴 TENTO LOG TAM TERAZ PRIDAJ
     frappe.log_error(
-        title="BC VOIP PUSH DEBUG",
+        title="APNS VOIP DEBUG – REQUEST",
         message=f"""
-        PROD: {prod}
-        HOST: {host}
-        URL: {url}
-
-        APNS-TOPIC: {headers.get("apns-topic")}
-        DEVICE TOKEN: {device_token}
-
-        PAYLOAD:
-        {json.dumps(payload, indent=2)}
-        """
+HOST: {host}
+URL: {url}
+TOPIC: {headers['apns-topic']}
+TOKEN PREFIX: {device_token[:12]}
+PAYLOAD:
+{payload}
+"""
     )
 
     with httpx.Client(http2=True, timeout=10) as client:
-        resp = client.post(url, headers=headers, content=json.dumps(payload))
+        resp = client.post(url, headers=headers, json=payload)
+
+    frappe.log_error(
+        title="APNS VOIP DEBUG – RESPONSE",
+        message=f"""
+STATUS: {resp.status_code}
+HEADERS: {dict(resp.headers)}
+BODY: {resp.text}
+"""
+    )
 
     if resp.status_code != 200:
-        try:
-            detail = resp.json()
-        except Exception:
-            detail = resp.text
-
-        frappe.log_error(f"APNs error {resp.status_code}: {detail}", "BC APNs")
-        frappe.throw(f"APNs error {resp.status_code}: {detail}")
+        frappe.throw(f"APNs error {resp.status_code}: {resp.text}")
 
     return {"apns_id": resp.headers.get("apns-id")}
+
 
 
 
