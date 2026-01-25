@@ -281,21 +281,22 @@ def get_actor_by_clerk_id(clerk_id: str):
 # ---------------------------------------------------
 
 def upsert_child_device_for_user(user_doc, voip_token=None, apns_token=None):
-    # Zistíme správny názov poľa podľa typu dokumentu
-    # Ak je to Klient, pole je 'zariadenie'. Ak Poradca, pole je 'zariadenia'.
-    field_name = "zariadenie" if user_doc.doctype == "Klient" else "zariadenia"
+    # OPRAVA: Keďže sú teraz polia v oboch Doctype (Klient aj Poradca) 
+    # pomenované rovnako, nastavíme 'zariadenie' natvrdo.
+    field_name = "zariadenie"
     
     modified = False
 
-    # 1. Odstránenie duplikátov u iných (voliteľné, ale odporúčané)
+    # 1. Odstránenie duplikátov u iných (zabezpečí, že hovor zvoní len poslednému prihlásenému)
     if voip_token:
         frappe.db.delete("Zariadenie", {"voip_token": voip_token, "parent": ["!=", user_doc.name]})
 
-    # 2. Kontrola, či už zariadenie existuje
+    # 2. Kontrola, či už zariadenie v tabuľke existuje
     found = False
     devices = user_doc.get(field_name) or []
     
     for ch in devices:
+        # Porovnávame tokeny, aby sme nevytvárali duplicitné riadky pre ten istý mobil
         if (voip_token and ch.voip_token == voip_token) or (apns_token and ch.apns_token == apns_token):
             found = True
             if voip_token: ch.voip_token = voip_token
@@ -303,7 +304,7 @@ def upsert_child_device_for_user(user_doc, voip_token=None, apns_token=None):
             modified = True
             break
 
-    # 3. Ak sa nenašlo, pridáme nové do SPRÁVNEHO poľa
+    # 3. Ak sa nenašlo, pridáme nový riadok do tabuľky
     if not found:
         user_doc.append(field_name, {
             "voip_token": voip_token,
@@ -313,6 +314,7 @@ def upsert_child_device_for_user(user_doc, voip_token=None, apns_token=None):
 
     if modified:
         user_doc.save(ignore_permissions=True)
+        # Commit je dôležitý, aby sa zmeny zapísali okamžite
         frappe.db.commit()
 
     return True
