@@ -122,20 +122,15 @@ def start():
         except Exception:
             frappe.log_error(frappe.get_traceback(), "Google Calendar Start Error")
 
-    # ------------------------------------------------------------------
-    # VOIP PUSH
-    # ------------------------------------------------------------------
-    # ------------------------------------------------------------------
-    # VOIP PUSH (OPRAVENÁ LOGIKA PRE CHILD TABLES)
+   # ------------------------------------------------------------------
+    # VOIP PUSH (ZJEDNODUŠENÉ PO ZMENE DOCTYPE)
     # ------------------------------------------------------------------
     try:
-        # advisor_name je ID poradcu (napr. "POR-001")
-        # advisor_type je "Poradca"
+        # Načítame dokument poradcu (advisor_type = "Poradca")
         adv_doc = frappe.get_doc(advisor_type, advisor_name)
         
-        # Skúsime nájsť tabuľku pod oboma názvami (pre istotu, ak by si menil Labely)
-        # Podľa tvojich screenshotov je to u Poradcu 'zariadenia'
-        device_rows = adv_doc.get("zariadenia") or adv_doc.get("zariadenie") or []
+        # Po tvojej úprave JSONu sa pole volá už len 'zariadenie'
+        device_rows = adv_doc.get("zariadenie") or []
         
         if not device_rows:
             frappe.logger().warning(f"⚠️ Poradca {advisor_name} nemá v tabuľke žiadne zariadenia.")
@@ -143,8 +138,8 @@ def start():
         for row in device_rows:
             if row.voip_token:
                 try:
-                    # Log uvidíš v bench logoch, skontroluj či vypíše token
-                    frappe.logger().info(f"Odosielam VoIP push na token: {row.voip_token[:15]}...")
+                    # Log pre kontrolu v Error Logu
+                    frappe.log_error(f"Odosielam VoIP push na token: {row.voip_token[:20]}...", "VoIP Debug")
                     
                     send_voip_push(row.voip_token, {
                         "callId": call.name,
@@ -155,6 +150,7 @@ def start():
                     })
                 except Exception as e:
                     frappe.log_error(f"VoIP Push failed: {str(e)}", "BC Call Error")
+                    
     except Exception as e:
         frappe.log_error(f"Chyba pri získavaní zariadení: {str(e)}", "BC Call Error")
 
