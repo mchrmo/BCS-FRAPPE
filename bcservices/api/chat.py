@@ -1,23 +1,23 @@
-# apps/bcservices/bcservices/api/chat.py
-
 import frappe
 from frappe.utils import now_datetime
 
+from .utils import get_actor_by_clerk_id
 
-def _get_client_name_by_clerk_id(clerk_id: str) -> str:
+
+# ----------------------------------------------------------------------
+# POMOCNÉ FUNKCIE
+# ----------------------------------------------------------------------
+
+def _get_actor_name_by_clerk_id(clerk_id: str) -> str:
     if not clerk_id:
         frappe.throw("Missing clerk_id")
 
-    name = frappe.db.get_value(
-        "Klient",   # ⬅️ PRESNE PODĽA SCREENSHOTU
-        {"clerk_id": clerk_id},
-        "name"
-    )
+    doctype, doc = get_actor_by_clerk_id(clerk_id)
 
-    if not name:
+    if not doc:
         frappe.throw(f"Unknown clerk_id: {clerk_id}")
 
-    return name
+    return doc.name
 
 
 def _sanitize_text(text: str) -> str:
@@ -29,28 +29,30 @@ def _sanitize_text(text: str) -> str:
     return text
 
 
+# ----------------------------------------------------------------------
+# SAVE MESSAGE
+# ----------------------------------------------------------------------
 @frappe.whitelist(methods=["POST"], allow_guest=True)
 def save_message(from_clerk=None, to_clerk=None, content=None, room_id=None):
-    # ⚠️ LEN NA TEST
+    # ⚠️ zatiaľ ponechané ako máš (test / trusted env)
     frappe.set_user("Administrator")
 
-    sender = _get_client_name_by_clerk_id(from_clerk)
-    recipient = _get_client_name_by_clerk_id(to_clerk)
+    sender = _get_actor_name_by_clerk_id(from_clerk)
+    recipient = _get_actor_name_by_clerk_id(to_clerk)
     content = _sanitize_text(content)
 
     doc = frappe.get_doc({
-    "doctype": "Sprava Chatu",  # ⬅️ PRESNE ako v UI
-    "odosielatel": sender,
-    "prijemca": recipient,
-    "obsah": content,
-    "datum_cas": now_datetime(),
-	})
-
+        "doctype": "Sprava Chatu",
+        "odosielatel": sender,
+        "prijemca": recipient,
+        "obsah": content,
+        "datum_cas": now_datetime(),
+    })
 
     if room_id and doc.meta.has_field("room_id"):
         doc.room_id = room_id
 
-    doc.insert()
+    doc.insert(ignore_permissions=True)
 
     return {
         "success": True,
@@ -58,6 +60,10 @@ def save_message(from_clerk=None, to_clerk=None, content=None, room_id=None):
         "timestamp": doc.datum_cas,
     }
 
+
+# ----------------------------------------------------------------------
+# UPLOAD FILE
+# ----------------------------------------------------------------------
 @frappe.whitelist(methods=["POST"], allow_guest=True)
 def upload_file():
     frappe.set_user("Administrator")
@@ -82,24 +88,26 @@ def upload_file():
     }
 
 
+# ----------------------------------------------------------------------
+# GET MESSAGES
+# ----------------------------------------------------------------------
 @frappe.whitelist(methods=["GET"], allow_guest=True)
 def get_messages(user_a=None, user_b=None, limit=100):
-    # ⚠️ LEN NA TEST
     frappe.set_user("Administrator")
 
     if not user_a or not user_b:
         frappe.throw("Missing user_a or user_b")
 
-    client_a = _get_client_name_by_clerk_id(user_a)
-    client_b = _get_client_name_by_clerk_id(user_b)
+    actor_a = _get_actor_name_by_clerk_id(user_a)
+    actor_b = _get_actor_name_by_clerk_id(user_b)
 
     limit = int(limit or 100)
 
     messages = frappe.get_all(
         "Sprava Chatu",
         filters=[
-            ["odosielatel", "in", [client_a, client_b]],
-            ["prijemca", "in", [client_a, client_b]],
+            ["odosielatel", "in", [actor_a, actor_b]],
+            ["prijemca", "in", [actor_a, actor_b]],
         ],
         fields=[
             "odosielatel",
@@ -115,8 +123,8 @@ def get_messages(user_a=None, user_b=None, limit=100):
         "success": True,
         "messages": [
             {
-                "from": user_a if m["odosielatel"] == client_a else user_b,
-                "to": user_b if m["prijemca"] == client_b else user_a,
+                "from": user_a if m["odosielatel"] == actor_a else user_b,
+                "to": user_b if m["prijemca"] == actor_b else user_a,
                 "content": m["obsah"],
                 "timestamp": m["datum_cas"].isoformat(),
             }
