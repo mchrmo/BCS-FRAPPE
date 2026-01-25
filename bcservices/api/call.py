@@ -99,12 +99,14 @@ def start():
         for row in device_rows:
             if row.voip_token:
                 send_voip_push(row.voip_token, {
-                    "callId": call.name,
-                    "callerId": caller_clerk,
-                    "callerName": caller_name,
-                    "title": "Prichádzajúci hovor",
-                    "body": f"Volá {caller_name}",
-                })
+				    "aps": {
+				        "content-available": 1
+				    },
+				    "callId": call.name,
+				    "callerId": caller_clerk,
+				    "callerName": caller_name,
+				})
+
     except Exception as e:
         frappe.log_error(f"VoIP Push failed for {advisor_name}: {str(e)}", "BC Call Error")
 
