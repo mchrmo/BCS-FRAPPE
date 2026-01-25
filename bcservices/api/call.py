@@ -44,56 +44,48 @@ def pick_active_token_for_holder(klient_name: str) -> str | None:
 @frappe.whitelist(methods=["POST"], allow_guest=True)
 def start():
     # ------------------------------------------------------------------
-    # 1. AUTH
+    # 1. AUTH + INPUT
     # ------------------------------------------------------------------
     clerk_id, _ = verify_clerk_bearer_and_get_sub()
     data = frappe.local.form_dict or {}
 
     caller_clerk = data.get("callerId")
-    advisor_clerk = data.get("advisorId")
+    target_clerk = data.get("advisorId")  # NÁZOV OSTÁVA, ALE JE TO RECIPIENT
 
     frappe.log_error(
-        title="CALL START DEBUG – INPUT",
-        message=f"""
-        AUTH clerk_id: {clerk_id}
-        callerId: {caller_clerk}
-        advisorId: {advisor_clerk}
-        RAW DATA: {data}
-        """
+        f"AUTH clerk_id={clerk_id}\n"
+        f"callerId={caller_clerk}\n"
+        f"advisorId={target_clerk}\n"
+        f"RAW DATA={data}",
+        "CALL START DEBUG – INPUT"
     )
 
-    if not caller_clerk or not advisor_clerk:
+    if not caller_clerk or not target_clerk:
         frappe.throw("Missing callerId or advisorId")
 
     if clerk_id != caller_clerk:
-        frappe.throw("Forbidden", frappe.PermissionError)
+        frappe.throw("Forbidden: you can only start calls as yourself", frappe.PermissionError)
 
     # ------------------------------------------------------------------
-    # 2. ACTORS
+    # 2. LOOKUP ACTORS
     # ------------------------------------------------------------------
     caller_name, caller_type = get_actor_name_and_type(caller_clerk)
-    advisor_name, advisor_type = get_actor_name_and_type(advisor_clerk)
+    target_name, target_type = get_actor_name_and_type(target_clerk)
 
     frappe.log_error(
-        title="CALL START DEBUG – ACTORS",
-        message=f"""
-        CALLER:
-          clerk_id={caller_clerk}
-          name={caller_name}
-          type={caller_type}
-
-        ADVISOR:
-          clerk_id={advisor_clerk}
-          name={advisor_name}
-          type={advisor_type}
-        """
+        f"CALLER:\n"
+        f"  clerk_id={caller_clerk}\n"
+        f"  name={caller_name}\n"
+        f"  type={caller_type}\n\n"
+        f"RECIPIENT:\n"
+        f"  clerk_id={target_clerk}\n"
+        f"  name={target_name}\n"
+        f"  type={target_type}",
+        "CALL START DEBUG – ACTORS"
     )
 
-    if advisor_type != "Poradca":
-        frappe.throw("Target must be Poradca")
-
     # ------------------------------------------------------------------
-    # 3. TOKEN CHECK (FRIDAY)
+    # 3. TOKEN LOGIKA (len ak volá KLIENT v PIATOK)
     # ------------------------------------------------------------------
     now = now_datetime()
     used_token = None
@@ -107,95 +99,72 @@ def start():
             }
 
     # ------------------------------------------------------------------
-    # 4. CREATE CALL
+    # 4. CREATE CALL LOG
     # ------------------------------------------------------------------
     call = frappe.get_doc({
         "doctype": "Dennik hovorov",
         "volajuci": caller_name,
-        "poradca": advisor_name,
+        "poradca": target_name,  # historický názov poľa, ale je to recipient
         "zaciatok_datum": now.date(),
         "zaciatok_cas": now.strftime("%H:%M:%S"),
         "pouzity_token": used_token,
     })
     call.insert(ignore_permissions=True)
 
+    # ------------------------------------------------------------------
+    # 5. LOAD RECIPIENT DEVICE(S)
+    # ------------------------------------------------------------------
+    if target_type == "Poradca":
+        recipient_doc = frappe.get_doc("Poradca", target_name)
+    elif target_type == "Klient":
+        recipient_doc = frappe.get_doc("Klient", target_name)
+    else:
+        frappe.throw("Unknown recipient type")
+
+    device_rows = recipient_doc.get("zariadenie") or []
+
     frappe.log_error(
-        title="CALL START DEBUG – CALL CREATED",
-        message=f"""
-        call.name = {call.name}
-        volajuci = {caller_name}
-        poradca = {advisor_name}
-        """
+        f"PUSH TARGET:\n"
+        f"  name={target_name}\n"
+        f"  type={target_type}\n"
+        f"  devices={len(device_rows)}",
+        "CALL START DEBUG – DEVICES"
     )
-
-    # ------------------------------------------------------------------
-    # 5. LOAD DEVICES
-    # ------------------------------------------------------------------
-    device_rows = []
-
-    try:
-        adv_doc = frappe.get_doc("Poradca", advisor_name)
-        device_rows = adv_doc.get("zariadenie") or []
-
-        frappe.log_error(
-            title="CALL START DEBUG – DEVICES",
-            message=f"""
-            advisor={advisor_name}
-            devices_found={len(device_rows)}
-            tokens={[d.voip_token for d in device_rows]}
-            """
-        )
-
-    except Exception:
-        frappe.log_error(
-            title="CALL START DEBUG – DEVICE LOAD FAILED",
-            message=frappe.get_traceback()
-        )
 
     # ------------------------------------------------------------------
     # 6. SEND VOIP PUSH
     # ------------------------------------------------------------------
+    sent = 0
+
     for row in device_rows:
         if not row.voip_token:
             continue
 
-        try:
-            send_voip_push(
-                row.voip_token,
-                {
-                    "aps": {
-                        "content-available": 1
-                    },
-                    "callId": call.name,
-                    "callerId": caller_clerk,
-                    "callerName": caller_name,
-                }
-            )
+        send_voip_push(
+            row.voip_token,
+            {
+                "aps": {"content-available": 1},
+                "callId": call.name,
+                "callerId": caller_clerk,
+                "callerName": caller_name,
+            }
+        )
+        sent += 1
 
-            frappe.log_error(
-                title="CALL START DEBUG – PUSH SENT",
-                message=f"""
-                to={advisor_name}
-                token={row.voip_token[:12]}…
-                callId={call.name}
-                """
-            )
-
-        except Exception:
-            frappe.log_error(
-                title="CALL START DEBUG – PUSH FAILED",
-                message=frappe.get_traceback()
-            )
+    frappe.log_error(
+        f"VOIP PUSH SENT: {sent}",
+        "CALL START DEBUG – PUSH SENT"
+    )
 
     # ------------------------------------------------------------------
-    # 7. FINAL RETURN (🔥 ABSOLÚTNE KRITICKÉ)
+    # 7. RESPONSE
     # ------------------------------------------------------------------
     return {
         "success": True,
         "callId": call.name,
-        "advisorName": advisor_name
+        "recipientName": target_name,
+        "recipientType": target_type,
     }
-
 
 
 
