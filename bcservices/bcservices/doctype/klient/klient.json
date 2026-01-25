@@ -11,7 +11,8 @@
   "email",
   "heslo",
   "zariadenie",
-  "clerk_id"
+  "clerk_id",
+  "poradcovia"
  ],
  "fields": [
   {
@@ -46,13 +47,19 @@
   {
    "fieldname": "znacka_klienta",
    "fieldtype": "Data",
-   "label": "Značka klienta"
+   "label": "Zna\u010dka klienta"
+  },
+  {
+   "fieldname": "poradcovia",
+   "fieldtype": "Table",
+   "label": "Moji poradcovia ",
+   "options": "Poradca Klienta"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-12-01 13:34:52.887939",
+ "modified": "2026-01-25 16:37:46.743047",
  "modified_by": "Administrator",
  "module": "BCServices",
  "name": "Klient",

@@ -299,6 +299,62 @@ def on_update_bc_poradca(doc, method=None):
     except Exception as e:
         frappe.log_error(f"Clerk update poradca failed: {e}", "BC Clerk Sync")
 
+@frappe.whitelist(methods=["GET"])
+def get_my_advisors():
+    """
+    Vráti zoznam poradcov priradených k prihlásenému klientovi.
+    iOS volá: /api/method/bcservices.api.auth.get_my_advisors
+    """
+    # 1. Overenie identity klienta cez Clerk JWT v hlavičke
+    try:
+        clerk_id, _ = verify_clerk_bearer_and_get_sub()
+    except Exception as e:
+        frappe.throw(f"Neautorizovaný prístup: {e}", frappe.PermissionError)
+
+    # 2. Vyhľadanie mena klienta v databáze Frappe
+    klient_name = frappe.db.get_value("Klient", {"clerk_id": clerk_id}, "name")
+    
+    if not klient_name:
+        return {
+            "success": False,
+            "error": "V systéme neexistuje klient s týmto Clerk ID."
+        }
+
+    # 3. Načítanie dokumentu klienta aj s jeho Child Table (poradcovia)
+    doc = frappe.get_doc("Klient", klient_name)
+    
+    advisors_list = []
+    
+    # 4. Iterácia cez priradených poradcov
+    # Predpokladáme, že fieldname pre Child Table v Doctype Klient je 'poradcovia'
+    # a link field v Child Doctype sa volá 'poradca_link'
+    for row in doc.get("poradcovia") or []:
+        if not row.poradca_link:
+            continue
+            
+        try:
+            # Načítame detailné informácie o každom priradenom poradcovi
+            p = frappe.get_doc("Poradca", row.poradca_link)
+            
+            # Kontrola, či má poradca registrované zariadenia pre hovory
+            # Používame fieldname 'zariadenia', ktorý sme opravovali v utils.py
+            devices = p.get("zariadenia") or []
+            has_voip = any(d.voip_token for d in devices)
+
+            advisors_list.append({
+                "name": p.meno,
+                "clerk_id": p.clerk_id,
+                "email": p.email,
+                "has_voip": has_voip
+            })
+        except frappe.DoesNotExistError:
+            # Ak by bol poradca vymazaný, ale odkaz v klientovi zostal
+            continue
+
+    return {
+        "success": True,
+        "advisors": advisors_list
+    }
 
 def on_update_bc_pouzivatel(doc, method=None):
     if not getattr(doc, "clerk_id", None):
