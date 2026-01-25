@@ -9,7 +9,7 @@
   "email",
   "heslo",
   "clerk_id",
-  "zariadenia"
+  "zariadenie"
  ],
  "fields": [
   {
@@ -33,16 +33,16 @@
    "label": "clerk_id"
   },
   {
-   "fieldname": "zariadenia",
+   "fieldname": "zariadenie",
    "fieldtype": "Table",
-   "label": "Zariadenia",
+   "label": "Zariadenie",
    "options": "Zariadenie"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-01-24 16:04:53.641915",
+ "modified": "2026-01-25 20:40:00.000000",
  "modified_by": "Administrator",
  "module": "BCServices",
  "name": "Poradca",
