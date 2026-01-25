@@ -282,29 +282,35 @@ def get_actor_by_clerk_id(clerk_id: str):
 
 def upsert_child_device_for_user(user_doc, voip_token=None, apns_token=None):
     modified = False
+    # KĽÚČOVÁ OPRAVA: Podľa screenshotu je Name poľa 'zariadenie'
+    child_table_fieldname = "zariadenie"
 
-    # 1. Odstránenie duplikátov: ak tento token už má niekto iný, vymažeme ho odtiaľ
+    # 1. Odstránenie duplikátov u iných používateľov
     if voip_token:
         frappe.db.delete("Zariadenie", {"voip_token": voip_token, "parent": ["!=", user_doc.name]})
     if apns_token:
         frappe.db.delete("Zariadenie", {"apns_token": apns_token, "parent": ["!=", user_doc.name]})
 
-    # 2. Kontrola, či zariadenie už existuje v Child Table (podľa screenshotu sa volá 'zariadenia')
+    # 2. Kontrola existencie v tomto dokumente
     found = False
-    # POZOR: v screenshote vidím label "Zariadenia", skontroluj či je fieldname 'zariadenia'
-    devices = user_doc.get("zariadenia") or [] 
+    # Použijeme .get() na správny názov poľa
+    devices = user_doc.get(child_table_fieldname) or [] 
     
     for ch in devices:
+        # Ak sa zhoduje aspoň jeden token, považujeme to za to isté zariadenie
         if (voip_token and ch.voip_token == voip_token) or (apns_token and ch.apns_token == apns_token):
             found = True
-            if voip_token: ch.voip_token = voip_token
-            if apns_token: ch.apns_token = apns_token
-            modified = True
+            if voip_token and ch.voip_token != voip_token:
+                ch.voip_token = voip_token
+                modified = True
+            if apns_token and ch.apns_token != apns_token:
+                ch.apns_token = apns_token
+                modified = True
             break
 
-    # 3. Ak sa nenašlo, pridáme nové
+    # 3. Ak sa nenašlo, pridáme nové pod správny fieldname
     if not found:
-        user_doc.append("zariadenia", {
+        user_doc.append(child_table_fieldname, {
             "voip_token": voip_token,
             "apns_token": apns_token
         })
@@ -312,6 +318,7 @@ def upsert_child_device_for_user(user_doc, voip_token=None, apns_token=None):
 
     if modified:
         user_doc.save(ignore_permissions=True)
-        frappe.db.commit()
+        # Commit zabezpečí, že sa zmena zapíše okamžite
+        frappe.db.commit() 
 
     return True
