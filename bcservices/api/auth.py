@@ -299,7 +299,7 @@ def on_update_bc_poradca(doc, method=None):
     except Exception as e:
         frappe.log_error(f"Clerk update poradca failed: {e}", "BC Clerk Sync")
 
-@frappe.whitelist(methods=["GET"])
+@frappe.whitelist(methods=["GET"], allow_guest=True)
 def get_my_advisors():
     """
     Vráti zoznam poradcov priradených k prihlásenému klientovi.
