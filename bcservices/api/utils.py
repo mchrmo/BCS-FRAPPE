@@ -279,6 +279,7 @@ def send_voip_push(device_token: str, payload: dict):
     return {"apns_id": resp.headers.get("apns-id")}
 
 
+
 def get_actor_by_clerk_id(clerk_id: str):
     """
     Vráti tuple: (doctype, doc)
