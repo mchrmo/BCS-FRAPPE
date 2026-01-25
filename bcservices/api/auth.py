@@ -336,9 +336,8 @@ def get_my_advisors():
             # Načítame detailné informácie o každom priradenom poradcovi
             p = frappe.get_doc("Poradca", row.poradca_link)
             
-            # Kontrola, či má poradca registrované zariadenia pre hovory
-            # Používame fieldname 'zariadenia', ktorý sme opravovali v utils.py
-            devices = p.get("zariadenia") or []
+            # OPRAVA TU: Zmenené zo 'zariadenia' na 'zariadenie'
+            devices = p.get("zariadenie") or []
             has_voip = any(d.voip_token for d in devices)
 
             advisors_list.append({
