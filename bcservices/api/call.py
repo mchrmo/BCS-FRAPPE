@@ -41,11 +41,12 @@ def pick_active_token_for_holder(klient_name: str) -> str | None:
     return rows[0]["name"] if rows else None
 
 
-# ----------------------------------------------------------------------
-# START CALL
-# ----------------------------------------------------------------------
 @frappe.whitelist(methods=["POST"], allow_guest=True)
 def start():
+    # 🔒 GARANCIA SCOPE (kritické kvôli predchádzajúcej chybe)
+    advisor_name = None
+    caller_name = None
+
     # 1. Overenie, kto volá (Clerk JWT)
     clerk_id, _ = verify_clerk_bearer_and_get_sub()
 
@@ -56,11 +57,14 @@ def start():
     if not caller_clerk or not advisor_clerk:
         frappe.throw(_("Missing callerId or advisorId"))
 
-    # 2. Bezpečnosť: Overený používateľ musí byť ten, kto je uvedený ako volajúci
+    # 2. Bezpečnosť: volajúci musí byť ten, kto request poslal
     if clerk_id != caller_clerk:
-        frappe.throw(_("Forbidden: You can only start calls as yourself"), frappe.PermissionError)
+        frappe.throw(
+            _("Forbidden: You can only start calls as yourself"),
+            frappe.PermissionError
+        )
 
-    # 3. Lookup aktérov (zistíme, kto je Klient a kto Poradca)
+    # 3. Lookup aktérov (meno + typ)
     caller_name, caller_type = get_actor_name_and_type(caller_clerk)
     advisor_name, advisor_type = get_actor_name_and_type(advisor_clerk)
 
@@ -69,7 +73,7 @@ def start():
 
     now = now_datetime()
 
-    # 4. TOKEN LOGIKA (PIATOK) - ak volá klient, kontrolujeme tokeny
+    # 4. TOKEN LOGIKA (iba v piatok a iba klient)
     used_token = None
     if is_friday(now) and caller_type == "Klient":
         used_token = pick_active_token_for_holder(caller_name)
@@ -79,7 +83,7 @@ def start():
                 "error": "V piatok je potrebný token. Nemáte dostupné minúty."
             }
 
-    # 5. VYTVORENIE ZÁZNAMU V DENNÍKU
+    # 5. Vytvorenie záznamu hovoru
     call = frappe.get_doc({
         "doctype": "Dennik hovorov",
         "volajuci": caller_name,
@@ -90,41 +94,53 @@ def start():
     })
     call.insert(ignore_permissions=True)
 
-    # 6. VOIP PUSH konkrétnemu poradcovi, ktorému klient volá
-try:
-    adv_doc = frappe.get_doc("Poradca", advisor_name)
-    device_rows = adv_doc.get("zariadenie") or []
+    # 6. VOIP PUSH – POSLANIE NOTIFIKÁCIE PORADCOVI
+    try:
+        adv_doc = frappe.get_doc("Poradca", advisor_name)
+        device_rows = adv_doc.get("zariadenie") or []
 
-    frappe.log_error(
-        title="BC CALL DEBUG",
-        message=f"""
+        # 🔍 DEBUG – uvidíme, čo backend naozaj vidí
+        frappe.log_error(
+            title="BC CALL DEBUG",
+            message=f"""
 Advisor name: {advisor_name}
 Devices count: {len(device_rows)}
 """
-    )
-
-    for row in device_rows:
-        frappe.log_error(
-            title="BC DEVICE DEBUG",
-            message=f"voip_token={row.voip_token}"
         )
 
-        if row.voip_token:
-            send_voip_push(
-                row.voip_token,
-                {
-                    "aps": {"content-available": 1},
-                    "callId": call.name,
-                    "callerId": caller_clerk,
-                    "callerName": caller_name,
-                }
+        for row in device_rows:
+            frappe.log_error(
+                title="BC DEVICE DEBUG",
+                message=f"voip_token={row.voip_token}"
             )
 
-except Exception as e:
-    frappe.log_error(
-        title="BC CALL ERROR",
-        message=str(e)
-    )
+            if row.voip_token:
+                send_voip_push(
+                    row.voip_token,
+                    {
+                        "aps": {
+                            "content-available": 1
+                        },
+                        "callId": call.name,
+                        "callerId": caller_clerk,
+                        "callerName": caller_name,
+                    }
+                )
+
+    except Exception:
+        # ❗ vždy loguj traceback, nie len str(e)
+        frappe.log_error(
+            title="BC CALL ERROR",
+            message=frappe.get_traceback()
+        )
+
+    # 7. Response pre frontend
+    return {
+        "success": True,
+        "callId": call.name,
+        "advisorName": advisor_name
+    }
+
 
 
 
