@@ -125,27 +125,38 @@ def start():
     # ------------------------------------------------------------------
     # VOIP PUSH
     # ------------------------------------------------------------------
-    devices = frappe.get_all(
-        "Zariadenie",
-        filters={"parent": advisor_name},
-        fields=["voip_token"]
-    )
+    # ------------------------------------------------------------------
+    # VOIP PUSH (OPRAVENÁ LOGIKA PRE CHILD TABLES)
+    # ------------------------------------------------------------------
+    try:
+        # advisor_name je ID poradcu (napr. "POR-001")
+        # advisor_type je "Poradca"
+        adv_doc = frappe.get_doc(advisor_type, advisor_name)
+        
+        # Skúsime nájsť tabuľku pod oboma názvami (pre istotu, ak by si menil Labely)
+        # Podľa tvojich screenshotov je to u Poradcu 'zariadenia'
+        device_rows = adv_doc.get("zariadenia") or adv_doc.get("zariadenie") or []
+        
+        if not device_rows:
+            frappe.logger().warning(f"⚠️ Poradca {advisor_name} nemá v tabuľke žiadne zariadenia.")
 
-    for device in devices:
-        if device.voip_token:
-            try:
-                # Log pre debugging - uvidíte v Bench logoch, či vôbec niečo posielate
-                frappe.logger().info(f"Sending VoIP push to: {device.voip_token}")
-                
-                send_voip_push(device.voip_token, {
-                    "callId": call.name,
-                    "callerId": caller_clerk,
-                    "callerName": caller_name,
-                    "title": "Prichádzajúci hovor",
-                    "body": f"Volá {caller_name}",
-                })
-            except Exception as e:
-                frappe.log_error(f"Push failed for {device.voip_token}: {str(e)}", "VoIP Push Error")
+        for row in device_rows:
+            if row.voip_token:
+                try:
+                    # Log uvidíš v bench logoch, skontroluj či vypíše token
+                    frappe.logger().info(f"Odosielam VoIP push na token: {row.voip_token[:15]}...")
+                    
+                    send_voip_push(row.voip_token, {
+                        "callId": call.name,
+                        "callerId": caller_clerk,
+                        "callerName": caller_name,
+                        "title": "Prichádzajúci hovor",
+                        "body": f"Volá {caller_name}",
+                    })
+                except Exception as e:
+                    frappe.log_error(f"VoIP Push failed: {str(e)}", "BC Call Error")
+    except Exception as e:
+        frappe.log_error(f"Chyba pri získavaní zariadení: {str(e)}", "BC Call Error")
 
     return {
         "success": True,
