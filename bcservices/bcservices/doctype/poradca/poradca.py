@@ -5,24 +5,30 @@ from frappe.model.document import Document
 class Poradca(Document):
 
     def after_insert(self):
-        # Ak chcete, aby sa mail odoslal hneď po vytvorení poradcu
+        """
+        Táto metóda sa spustí automaticky hneď po vytvorení a uložení nového poradcu.
+        """
         self.send_welcome_email()
 
     @frappe.whitelist()
     def send_welcome_email(self):
-        # Overenie, či sú polia vyplnené
+        """
+        Metóda na odoslanie uvítacieho e-mailu s prihlasovacími údajmi.
+        """
+        # Kontrola, či sú povinné údaje vyplnené
         if not self.email or not self.heslo:
             frappe.msgprint("Poradca nemá vyplnený email alebo heslo.")
             return
 
-        # HTML-safe verzia hesla (prevencia proti špeciálnym znakom v HTML)
-        password_safe = html.escape(str(self.heslo) or "")
-        
+        # Predmet e-mailu
         subject = "Vaše prihlasovacie údaje"
-        
-        # Opravená správa: pridané self.email a tag <code> pre lepšiu čitateľnosť
+
+        # Ošetrenie špeciálnych znakov v hesle pre HTML formát
+        password_safe = html.escape(str(self.heslo) or "")
+
+        # HTML správa - opravená na self.meno a self.email
         message = f"""
-        Dobrý deň {self.username or 'používateľ'},<br><br>
+        Dobrý deň {self.meno or 'používateľ'},<br><br>
         boli vám vytvorené prihlasovacie údaje do systému.<br><br>
         📧 <b>Email:</b> {self.email}<br>
         🔐 <b>Heslo:</b> <code>{password_safe}</code><br><br>
@@ -31,11 +37,13 @@ class Poradca(Document):
         Váš tím
         """
 
+        # Odoslanie e-mailu
         frappe.sendmail(
             recipients=self.email,
             subject=subject,
             message=message,
             now=True
         )
-        
-        frappe.msgprint(f"E-mail s údajmi bol odoslaný na adresu {self.email}")
+
+        # Informačná hláška pre používateľa vo Frappe
+        frappe.msgprint(f"E-mail s údajmi bol úspešne odoslaný na adresu: {self.email}")
