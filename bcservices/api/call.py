@@ -67,6 +67,9 @@ def client_has_advisor(client_name: str, advisor_name: str) -> bool:
 # ----------------------------------------------------------------------
 @frappe.whitelist(methods=["POST"], allow_guest=True)
 def start():
+    # ------------------------------------------------------------------
+    # AUTH
+    # ------------------------------------------------------------------
     clerk_id, jwt_payload = verify_clerk_bearer_and_get_sub()
 
     data = frappe.local.form_dict or {}
@@ -76,16 +79,22 @@ def start():
     if not caller_clerk or not callee_clerk:
         frappe.throw(_("Missing callerId or advisorId"))
 
+    # volajúci môže volať iba za seba
     if clerk_id != caller_clerk:
         frappe.throw(_("Forbidden"), frappe.PermissionError)
 
+    # ------------------------------------------------------------------
+    # LOOKUP AKTÉROV
+    # ------------------------------------------------------------------
     caller_name, caller_type = get_actor_name_and_type(caller_clerk)
     callee_name, callee_type = get_actor_name_and_type(callee_clerk)
 
     if not caller_name or not callee_name:
         frappe.throw(_("Caller or callee not found"))
 
-    # Validácia vzťahu
+    # ------------------------------------------------------------------
+    # VALIDÁCIA VZŤAHU
+    # ------------------------------------------------------------------
     if caller_type == "Klient" and callee_type == "Poradca":
         if not client_has_advisor(caller_name, callee_name):
             frappe.throw(_("Tento poradca nepatrí klientovi"), frappe.PermissionError)
@@ -99,7 +108,9 @@ def start():
 
     now = now_datetime()
 
-    # Token logika (iba klient → poradca v piatok)
+    # ------------------------------------------------------------------
+    # TOKEN LOGIKA – iba klient → poradca v piatok
+    # ------------------------------------------------------------------
     used_token = None
     if caller_type == "Klient" and is_friday(now):
         used_token = pick_active_token_for_holder(caller_name)
@@ -109,43 +120,58 @@ def start():
                 "error": "V piatok je potrebný token. Nemáte dostupné minúty."
             }
 
-    # Vytvorenie hovoru
+    # ------------------------------------------------------------------
+    # VYTVORENIE HOVORU
+    # ------------------------------------------------------------------
     call = frappe.get_doc({
         "doctype": "Dennik hovorov",
         "volajuci": caller_name,
-        "poradca": callee_name,
+        "poradca": callee_name,   # historický názov = druhá strana
         "zaciatok_datum": now.date(),
         "zaciatok_cas": now.strftime("%H:%M:%S"),
         "pouzity_token": used_token,
     })
     call.insert(ignore_permissions=True)
 
-    # VoIP push → zariadenia volaného
+    # ------------------------------------------------------------------
+    # VOIP PUSH → ZARIADENIA VOLANÉHO
+    # ------------------------------------------------------------------
     devices = frappe.get_all(
         "Zariadenie",
         filters={
             "parent": callee_name,
-            "parenttype": callee_type,
+            "parenttype": callee_type,  # 🔥 KRITICKÉ
         },
         fields=["voip_token"],
+    )
+
+    # DEBUG LOG – MUSÍ SA OBJAVIŤ
+    frappe.log_error(
+        title="VOIP START DEBUG",
+        message=f"""
+CALL STARTED
+callee_name={callee_name}
+callee_type={callee_type}
+devices={devices}
+"""
     )
 
     for device in devices:
         if not device.voip_token:
             continue
-        try:
-            send_voip_push(
-                device.voip_token,
-                {
-                    "callId": call.name,
-                    "callerId": caller_clerk,
-                    "callerName": caller_name,
-                    "title": "Prichádzajúci hovor",
-                    "body": f"Volá {caller_name}",
-                }
-            )
-        except Exception:
-            frappe.log_error(frappe.get_traceback(), "VoIP Push Failed")
+
+        # ⚠️ VOIP PAYLOAD – MINIMÁLNY A SPRÁVNY
+        send_voip_push(
+            device.voip_token,
+            {
+                "aps": {
+                    "content-available": 1
+                },
+                "callId": call.name,
+                "callerId": caller_clerk,
+                "callerName": caller_name,
+            }
+        )
 
     return {
         "success": True,
@@ -153,7 +179,6 @@ def start():
         "tokenUsed": used_token,
         "calleeName": callee_name,
     }
-
 
 # ----------------------------------------------------------------------
 # ACCEPT CALL
