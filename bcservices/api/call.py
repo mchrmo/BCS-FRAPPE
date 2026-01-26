@@ -67,11 +67,11 @@ def client_has_advisor(client_name: str, advisor_name: str) -> bool:
 def start():
     clerk_id, jwt_payload = verify_clerk_bearer_and_get_sub()
 
-    # ---- načítanie JSON ----
+    # --- DATA (form + JSON fallback) ---
     data = frappe.local.form_dict or {}
-    if not data:
+    if not data and frappe.request.data:
         try:
-            data = json.loads(frappe.request.data or "{}")
+            data = frappe.parse_json(frappe.request.data)
         except Exception:
             data = {}
 
@@ -84,13 +84,14 @@ def start():
     if clerk_id != caller_clerk:
         frappe.throw(_("Forbidden"), frappe.PermissionError)
 
+    # --- ACTORS ---
     caller_name, caller_type = get_actor_name_and_type(caller_clerk)
     callee_name, callee_type = get_actor_name_and_type(callee_clerk)
 
     if not caller_name or not callee_name:
         frappe.throw(_("Caller or callee not found"))
 
-    # ---- validácia vzťahu ----
+    # --- RELATION VALIDATION ---
     if caller_type == "Klient" and callee_type == "Poradca":
         if not client_has_advisor(caller_name, callee_name):
             frappe.throw(_("Tento poradca nepatrí klientovi"), frappe.PermissionError)
@@ -104,14 +105,17 @@ def start():
 
     now = now_datetime()
 
-    # ---- token logika ----
+    # --- TOKEN (piatok, klient → poradca) ---
     used_token = None
     if caller_type == "Klient" and is_friday(now):
         used_token = pick_active_token_for_holder(caller_name)
         if not used_token:
-            return {"success": False, "error": "Nemáte dostupné minúty"}
+            return {
+                "success": False,
+                "error": "V piatok je potrebný token. Nemáte dostupné minúty."
+            }
 
-    # ---- vytvor hovor ----
+    # --- CREATE CALL ---
     call = frappe.get_doc({
         "doctype": "Dennik hovorov",
         "volajuci": caller_name,
@@ -122,18 +126,27 @@ def start():
     })
     call.insert(ignore_permissions=True)
 
-    # ---- 🔥 TU BOLA CHYBA ----
+    # --- FIND DEVICES (🔥 KRITICKÉ parentfield) ---
     devices = frappe.get_all(
         "Zariadenie",
-        filters={"clerk_id": callee_clerk},
+        filters={
+            "parent": callee_name,
+            "parenttype": callee_type,
+            "parentfield": "zariadenie",
+        },
         fields=["voip_token"],
     )
 
     frappe.log_error(
-        "VOIP START DEBUG",
-        f"callee={callee_name}, clerk={callee_clerk}, devices={devices}"
+        title="VOIP START DEBUG",
+        message=f"""
+callee_name={callee_name}
+callee_type={callee_type}
+devices={devices}
+"""
     )
 
+    # --- SEND VOIP PUSH ---
     for d in devices:
         if not d.voip_token:
             continue
@@ -152,6 +165,7 @@ def start():
         "success": True,
         "callId": call.name,
         "calleeName": callee_name,
+        "tokenUsed": used_token,
     }
 
 
