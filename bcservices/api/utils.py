@@ -235,6 +235,7 @@ def send_voip_push(device_token: str, payload: dict):
 
     bundle_id = settings.apn_bundle_id
     prod = cint(settings.apn_production) == 1
+
     host = "https://api.push.apple.com" if prod else "https://api.sandbox.push.apple.com"
     url = f"{host}/3/device/{device_token}"
 
@@ -247,83 +248,65 @@ def send_voip_push(device_token: str, payload: dict):
         "content-type": "application/json",
     }
 
-    frappe.log_error(
-        title="APNS VOIP DEBUG – REQUEST",
-        message=f"""
-HOST: {host}
-URL: {url}
-TOPIC: {headers['apns-topic']}
-TOKEN PREFIX: {device_token[:12]}
-PAYLOAD:
-{payload}
-"""
-    )
-
     with httpx.Client(http2=True, timeout=10) as client:
-        resp = client.post(url, headers=headers, json=payload)
-
-    frappe.log_error(
-        title="APNS VOIP DEBUG – RESPONSE",
-        message=f"""
-STATUS: {resp.status_code}
-HEADERS: {dict(resp.headers)}
-BODY: {resp.text}
-"""
-    )
+        resp = client.post(url, headers=headers, content=json.dumps(payload))
 
     if resp.status_code != 200:
-        frappe.throw(f"APNs error {resp.status_code}: {resp.text}")
+        try:
+            detail = resp.json()
+        except Exception:
+            detail = resp.text
+
+        frappe.log_error(f"APNs error {resp.status_code}: {detail}", "BC APNs")
+        frappe.throw(f"APNs error {resp.status_code}: {detail}")
 
     return {"apns_id": resp.headers.get("apns-id")}
-
-
-
-
-def get_actor_by_clerk_id(clerk_id: str):
-    """
-    Vráti tuple: (doctype, doc)
-    """
-    poradca = frappe.db.get_value("Poradca", {"clerk_id": clerk_id}, "name")
-    if poradca:
-        return "Poradca", frappe.get_doc("Poradca", poradca)
-
-    klient = frappe.db.get_value("Klient", {"clerk_id": clerk_id}, "name")
-    if klient:
-        return "Klient", frappe.get_doc("Klient", klient)
-
-    return None, None
 
 # ---------------------------------------------------
 # Device helper
 # ---------------------------------------------------
 
 def upsert_child_device_for_user(user_doc, voip_token=None, apns_token=None):
-    # odstráň rovnaký token inde (OK, to máš správne)
+    modified = False
+
+    # remove duplicates
     if voip_token:
-        frappe.db.sql("""
-            DELETE FROM `tabZariadenie`
-            WHERE voip_token=%s
-              AND NOT (parent=%s AND parenttype=%s)
-        """, (voip_token, user_doc.name, user_doc.doctype))
+        rows = frappe.get_all(
+            "Zariadenie",
+            filters={"voip_token": voip_token},
+            fields=["name", "parent"]
+        )
+        for r in rows:
+            if r["parent"] != user_doc.name:
+                frappe.db.delete("Zariadenie", {"name": r["name"]})
 
-    user_doc.reload()
+    # find existing
+    found = None
+    for ch in user_doc.get("zariadenie") or []:
+        if voip_token and ch.voip_token == voip_token:
+            found = ch
+            break
+        if apns_token and ch.apns_token == apns_token:
+            found = ch
+            break
 
-    devices = user_doc.get("zariadenie") or []
+    if found:
+        if voip_token and found.voip_token != voip_token:
+            found.voip_token = voip_token
+            modified = True
+        if apns_token and found.apns_token != apns_token:
+            found.apns_token = apns_token
+            modified = True
 
-    # update existujúce
-    for d in devices:
-        if voip_token and d.voip_token == voip_token:
-            if apns_token:
-                d.apns_token = apns_token
-            user_doc.save(ignore_permissions=True)
-            frappe.db.commit()
-            return True
+    else:
+        user_doc.append("zariadenie", {
+            "doctype": "Zariadenie",
+            "voip_token": voip_token,
+            "apns_token": apns_token
+        })
+        modified = True
 
-    # append nové zariadenie
-    row = user_doc.append("zariadenie", {})
-    row.voip_token = voip_token
-    row.apns_token = apns_token
+    if modified:
+        user_doc.save(ignore_permissions=True)
 
-    user_doc.save(ignore_permissions=True)
-    frappe.db.commit()
     return True
