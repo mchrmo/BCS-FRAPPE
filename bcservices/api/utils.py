@@ -22,6 +22,12 @@ def get_settings():
 # ---------------------------------------------------
 # Clerk helpers
 # ---------------------------------------------------
+def get_klient_by_clerk_or_throw(clerk_id: str):
+    name = frappe.db.get_value("Klient", {"clerk_id": clerk_id}, "name")
+    if not name:
+        frappe.throw("User not found", frappe.PermissionError)
+    return name
+
 
 def _clerk_issuer():
     settings = get_settings()
