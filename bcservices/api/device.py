@@ -18,6 +18,7 @@ def register_device():
     if not voip_token and not apns_token:
         frappe.throw("Missing device token")
 
+    # ⬇️ TU SA ROZHODNE, ČI JE TO Poradca ALEBO Klient
     user_doc = get_actor_by_clerk_id(clerk_id)
 
     user_doc.reload()
@@ -28,4 +29,8 @@ def register_device():
         apns_token=apns_token
     )
 
-    return {"success": True}
+    return {
+        "success": True,
+        "doctype": user_doc.doctype,
+        "name": user_doc.name
+    }
