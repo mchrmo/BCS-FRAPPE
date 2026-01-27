@@ -313,9 +313,26 @@ def get_actor_by_clerk_id(clerk_id: str):
 # ---------------------------------------------------
 
 def upsert_child_device_for_user(user_doc, voip_token=None, apns_token=None):
+    """
+    Zapíše / aktualizuje zariadenie pre:
+    - Klient
+    - Poradca
+
+    Automaticky zistí správny child field.
+    """
+
+    # 🔑 správny fieldname podľa Doctype
+    if user_doc.doctype == "Klient":
+        child_field = "zariadenie"
+    elif user_doc.doctype == "Poradca":
+        child_field = "zariadenie"  # ⚠️ UISTI SA, ŽE JE ROVNAKÝ
+    else:
+        frappe.throw(f"Unsupported doctype for device: {user_doc.doctype}")
+
+    devices = user_doc.get(child_field) or []
     modified = False
 
-    # remove duplicates
+    # odstránenie duplicitných tokenov
     if voip_token:
         rows = frappe.get_all(
             "Zariadenie",
@@ -324,16 +341,15 @@ def upsert_child_device_for_user(user_doc, voip_token=None, apns_token=None):
         )
         for r in rows:
             if r["parent"] != user_doc.name:
-                frappe.db.delete("Zariadenie", {"name": r["name"]})
+                frappe.db.delete("Zariadenie", r["name"])
 
-    # find existing
     found = None
-    for ch in user_doc.get("zariadenie") or []:
-        if voip_token and ch.voip_token == voip_token:
-            found = ch
+    for d in devices:
+        if voip_token and d.voip_token == voip_token:
+            found = d
             break
-        if apns_token and ch.apns_token == apns_token:
-            found = ch
+        if apns_token and d.apns_token == apns_token:
+            found = d
             break
 
     if found:
@@ -343,9 +359,8 @@ def upsert_child_device_for_user(user_doc, voip_token=None, apns_token=None):
         if apns_token and found.apns_token != apns_token:
             found.apns_token = apns_token
             modified = True
-
     else:
-        user_doc.append("zariadenie", {
+        user_doc.append(child_field, {
             "doctype": "Zariadenie",
             "voip_token": voip_token,
             "apns_token": apns_token
