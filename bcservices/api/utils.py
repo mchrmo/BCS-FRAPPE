@@ -231,6 +231,7 @@ def _build_apns_jwt():
 
 
 def send_voip_push(device_token: str, payload: dict):
+    """Odošle VoIP Push notifikáciu na zadaný Apple device token."""
     settings = get_settings()
 
     bundle_id = settings.apn_bundle_id
@@ -249,14 +250,7 @@ def send_voip_push(device_token: str, payload: dict):
 
     frappe.log_error(
         title="APNS VOIP DEBUG – REQUEST",
-        message=f"""
-HOST: {host}
-URL: {url}
-TOPIC: {headers['apns-topic']}
-TOKEN PREFIX: {device_token[:12]}
-PAYLOAD:
-{payload}
-"""
+        message=f"HOST: {host}\nURL: {url}\nTOPIC: {headers['apns-topic']}\nTOKEN PREFIX: {device_token[:12]}\nPAYLOAD:\n{json.dumps(payload, indent=2)}"
     )
 
     with httpx.Client(http2=True, timeout=10) as client:
@@ -264,20 +258,15 @@ PAYLOAD:
 
     frappe.log_error(
         title="APNS VOIP DEBUG – RESPONSE",
-        message=f"""
-STATUS: {resp.status_code}
-HEADERS: {dict(resp.headers)}
-BODY: {resp.text}
-"""
+        message=f"STATUS: {resp.status_code}\nHEADERS: {dict(resp.headers)}\nBODY: {resp.text}"
     )
 
     if resp.status_code != 200:
-        frappe.throw(f"APNs error {resp.status_code}: {resp.text}")
+        # V prípade chyby nevyhadzujeme throw, aby nezlyhal celý proces start_call, len zalogujeme
+        frappe.log_error(f"APNs error {resp.status_code}: {resp.text}", "APNS Critical Error")
+        return None
 
     return {"apns_id": resp.headers.get("apns-id")}
-
-
-
 
 def get_actor_by_clerk_id(clerk_id: str):
     """
