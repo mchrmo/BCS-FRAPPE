@@ -48,38 +48,41 @@ def get_settings_public():
 
 @frappe.whitelist(methods=["POST"], allow_guest=True)
 def sync_user():
+    """
+    iOS → /api/method/bcservices.api.auth.sync_user
+    Authorization: X-Clerk-Authorization: Bearer <jwt>
+
+    - Overí Clerk JWT
+    - Nájde alebo vytvorí BC klienta
+    - Nastaví default rolu 'client' IBA ak pole 'role' v metadata NEEXISTUJE.
+    """
+
     clerk_id, payload = verify_clerk_bearer_and_get_sub()
 
-    # 🔹 načítaj Clerk user
-    u = clerk_api(f"/v1/users/{clerk_id}")
-    role = (u.get("public_metadata") or {}).get("role")
-
-    # 🔴 AK JE PORADCA → NIČ NEVYTVÁRAJ
-    if role == "admin":
-        return {
-            "success": True,
-            "userId": clerk_id,
-            "role": "admin"
-        }
-
-    # 🟢 IBA CLIENT
+    # Create or update BC user
     doc = ensure_bc_user_by_clerk(clerk_id)
 
-    # default role handling (ako máš teraz)
-    pub = u.get("public_metadata") or {}
-    if "role" not in pub:
-        pub["role"] = "client"
-        clerk_api(
-            f"/v1/users/{clerk_id}",
-            method="PATCH",
-            json_body={"public_metadata": pub}
-        )
+    try:
+        u = clerk_api(f"/v1/users/{clerk_id}")
+        pub = (u.get("public_metadata") or {})
 
-    return {
-        "success": True,
-        "userId": clerk_id,
-        "role": "client"
-    }
+        # 🔥 AK pole "role" NEEXISTUJE – nastavíme default
+        # Nie: if not existing_role
+        if "role" not in pub:
+            pub["role"] = "client"
+
+            clerk_api(
+                f"/v1/users/{clerk_id}",
+                method="PATCH",
+                json_body={"public_metadata": pub}
+            )
+
+        # Ak pole role existuje (admin, client, čokoľvek) → nemeníme
+
+    except Exception as e:
+        frappe.log_error(f"Clerk role sync failed: {e}", "BC Clerk Sync")
+
+    return {"success": True, "userId": clerk_id}
 
 
 # -----------------------------------------------------------------------------
@@ -249,111 +252,7 @@ def after_insert_bc_pouzivatel(doc, method=None):
     except Exception as e:
         frappe.log_error(f"Clerk create failed: {e}", "BC Clerk Sync")
 
-def after_insert_bc_poradca(doc, method=None):
-    if getattr(doc, "clerk_id", None):
-        return
-    if not doc.email or not doc.heslo:
-        return
 
-    try:
-        res = clerk_api(
-            "/v1/users",
-            method="POST",
-            json_body={
-                "email_address": [doc.email],
-                "password": doc.heslo,
-                "username": _normalize_username_base(doc.meno),
-                "public_metadata": {
-                    "role": "admin"
-                }
-            }
-        )
-
-        clerk_id = res.get("id")
-        if clerk_id:
-            frappe.db.set_value("Poradca", doc.name, "clerk_id", clerk_id)
-
-    except Exception as e:
-        frappe.log_error(f"Clerk create poradca failed: {e}", "BC Clerk Sync")
-
-
-def on_update_bc_poradca(doc, method=None):
-    if not doc.clerk_id:
-        return
-
-    try:
-        patch = {
-            "public_metadata": {"role": "admin"},
-            "email_address": [doc.email],
-        }
-
-        if doc.heslo:
-            patch["password"] = doc.heslo
-
-        clerk_api(
-            f"/v1/users/{doc.clerk_id}",
-            method="PATCH",
-            json_body=patch
-        )
-
-    except Exception as e:
-        frappe.log_error(f"Clerk update poradca failed: {e}", "BC Clerk Sync")
-
-@frappe.whitelist(methods=["POST", "GET"], allow_guest=True) 
-def get_my_advisors():
-    """
-    Vráti zoznam poradcov priradených k prihlásenému klientovi.
-    iOS volá: /api/method/bcservices.api.auth.get_my_advisors
-    """
-    # 1. Overenie identity klienta cez Clerk JWT v hlavičke
-    try:
-        clerk_id, _ = verify_clerk_bearer_and_get_sub()
-    except Exception as e:
-        frappe.throw(f"Neautorizovaný prístup: {e}", frappe.PermissionError)
-
-    # 2. Vyhľadanie mena klienta v databáze Frappe
-    klient_name = frappe.db.get_value("Klient", {"clerk_id": clerk_id}, "name")
-    
-    if not klient_name:
-        return {
-            "success": False,
-            "error": "V systéme neexistuje klient s týmto Clerk ID."
-        }
-
-    # 3. Načítanie dokumentu klienta aj s jeho Child Table (poradcovia)
-    doc = frappe.get_doc("Klient", klient_name)
-    
-    advisors_list = []
-    
-    # 4. Iterácia cez priradených poradcov
-    # Predpokladáme, že fieldname pre Child Table v Doctype Klient je 'poradcovia'
-    # a link field v Child Doctype sa volá 'poradca_link'
-    for row in doc.get("poradcovia") or []:
-        if not row.poradca_link:
-            continue
-            
-        try:
-            # Načítame detailné informácie o každom priradenom poradcovi
-            p = frappe.get_doc("Poradca", row.poradca_link)
-            
-            # OPRAVA TU: Zmenené zo 'zariadenia' na 'zariadenie'
-            devices = p.get("zariadenie") or []
-            has_voip = any(d.voip_token for d in devices)
-
-            advisors_list.append({
-                "name": p.meno,
-                "clerk_id": p.clerk_id,
-                "email": p.email,
-                "has_voip": has_voip
-            })
-        except frappe.DoesNotExistError:
-            # Ak by bol poradca vymazaný, ale odkaz v klientovi zosta
-            continue
-
-    return {
-        "success": True,
-        "advisors": advisors_list
-    }
 
 def on_update_bc_pouzivatel(doc, method=None):
     if not getattr(doc, "clerk_id", None):
@@ -370,5 +269,3 @@ def on_update_bc_pouzivatel(doc, method=None):
         )
     except Exception as e:
         frappe.log_error(f"Clerk update failed: {e}", "BC Clerk Sync")
-
-        
