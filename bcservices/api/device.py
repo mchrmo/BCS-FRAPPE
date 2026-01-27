@@ -3,36 +3,40 @@
 import frappe
 from .utils import (
     verify_clerk_bearer_and_get_sub,
-    get_actor_by_clerk_id,
+    ensure_bc_user_by_clerk,
     upsert_child_device_for_user
 )
 
 @frappe.whitelist(methods=["POST"], allow_guest=True)
 def register_device():
-    clerk_id, _ = verify_clerk_bearer_and_get_sub()
+    """
+    Register iOS VoIP token for push notifications.
+    TOTO JE SPRÁVNA VERZIA PRE TVOJU APLIKÁCIU.
+    - Overí Clerk JWT
+    - Nájde Klient podľa clerk_id
+    - Uloží alebo aktualizuje záznam v child table 'Zariadenie'
+    """
+    
+    clerk_id, payload = verify_clerk_bearer_and_get_sub()
+
     data = frappe.local.form_dict or {}
 
+    # iOS môže poslať voip_token alebo voipToken
     voip_token = data.get("voip_token") or data.get("voipToken")
-    apns_token = data.get("apns_token") or data.get("apnsToken")
 
-    if not voip_token and not apns_token:
-        frappe.throw("Missing device token")
+    if not voip_token:
+        frappe.throw("Missing voip_token")
 
-    doctype, user_doc = get_actor_by_clerk_id(clerk_id)
-    if not user_doc:
-        frappe.throw("Unknown user")
+    # nájdi alebo vytvor Klient podľa Clerk ID
+    user_doc = ensure_bc_user_by_clerk(clerk_id)
 
-    # --- TOTO JE TA MOŽNÁ CHYBA ---
-    # Musíme sa uistiť, že objekt user_doc má čerstvé metadáta z DB
-    user_doc.reload() 
-
+    # upsert zariadenia – zabezpečí:
+    # - update tokenu ak existuje
+    # - nový child record ak neexistuje
+    # - odstránenie duplicít v ostatných useroch
     upsert_child_device_for_user(
         user_doc=user_doc,
-        voip_token=voip_token,
-        apns_token=apns_token
+        voip_token=voip_token
     )
 
-    return {
-        "success": True,
-        "actor": doctype,
-    }
+    return {"success": True, "voip_token": voip_token}
