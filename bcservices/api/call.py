@@ -49,20 +49,40 @@ def start():
     if not caller_clerk or not advisor_clerk:
         frappe.throw(_("Missing callerId or advisorId"))
 
-    # Volať môže len sám za seba
+    # Klient môže volať len sám za seba
     if auth_clerk_id != caller_clerk:
         frappe.throw(_("Forbidden"), frappe.PermissionError)
 
-    # 2. Lookup používateľov
-    caller_name = get_klient_by_clerk_or_throw(caller_clerk)
-    advisor_name = get_klient_by_clerk_or_throw(advisor_clerk)
+    # ------------------------------------------------------------------
+    # 2. Lookup AKTOROV PODĽA ROLE
+    # ------------------------------------------------------------------
 
-    # 3. Overenie, že poradca patrí klientovi
+    # Klient (volajúci)
+    caller_name = frappe.db.get_value(
+        "Klient",
+        {"clerk_id": caller_clerk},
+        "name"
+    )
+    if not caller_name:
+        frappe.throw(_("Caller is not a valid client"), frappe.PermissionError)
+
+    # Poradca (volaný)
+    advisor_name = frappe.db.get_value(
+        "Poradca",
+        {"clerk_id": advisor_clerk},
+        "name"
+    )
+    if not advisor_name:
+        frappe.throw(_("Advisor not found"), frappe.PermissionError)
+
+    # ------------------------------------------------------------------
+    # 3. Overenie vzťahu Klient → Poradca
+    # ------------------------------------------------------------------
     allowed = frappe.db.exists(
         "Poradca Klienta",
         {
-            "parent": caller_name,
-            "poradca": advisor_name
+            "parent": caller_name,   # Klient
+            "poradca": advisor_name  # Poradca
         }
     )
     if not allowed:
@@ -70,7 +90,9 @@ def start():
 
     now = now_datetime()
 
-    # 4. Token logika (piatok)
+    # ------------------------------------------------------------------
+    # 4. Token logika (iba klient, iba piatok)
+    # ------------------------------------------------------------------
     token_required = is_friday(now)
     used_token = None
 
@@ -82,22 +104,26 @@ def start():
                 "error": "V piatok je potrebný token. Nemáte dostupné minúty."
             }
 
+    # ------------------------------------------------------------------
     # 5. Vytvorenie hovoru
+    # ------------------------------------------------------------------
     call = frappe.get_doc({
         "doctype": "Dennik hovorov",
-        "volajuci": caller_name,
-        "poradca": advisor_name,
+        "volajuci": caller_name,   # Klient
+        "poradca": advisor_name,   # Poradca
         "zaciatok_datum": now.date(),
         "zaciatok_cas": now.strftime("%H:%M:%S"),
         "pouzity_token": used_token,
     })
     call.insert(ignore_permissions=True)
 
-    # 6. VoIP PUSH → LEN ZARIADENIA TOHTO PORADCU
+    # ------------------------------------------------------------------
+    # 6. VoIP PUSH → IBA ZARIADENIA PORADCU
+    # ------------------------------------------------------------------
     devices = frappe.get_all(
         "Zariadenie",
         filters={
-            "parent": advisor_name,
+            "parent": advisor_name,   # Poradca.name
             "voip_token": ["!=", ""]
         },
         fields=["voip_token"]
@@ -120,7 +146,6 @@ def start():
         "callId": call.name,
         "advisorName": advisor_name
     }
-
 
 # ----------------------------------------------------------------------
 # ACCEPT CALL
