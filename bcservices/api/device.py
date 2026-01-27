@@ -1,11 +1,6 @@
-# apps/bcservices/bcservices/api/device.py
-
 import frappe
-from .utils import (
-    verify_clerk_bearer_and_get_sub,
-    get_actor_by_clerk_id,
-    upsert_child_device_for_user
-)
+from frappe import _
+from .utils import verify_clerk_bearer_and_get_sub, clerk_api
 
 @frappe.whitelist(methods=["POST"], allow_guest=True)
 def register_device():
@@ -18,19 +13,39 @@ def register_device():
     if not voip_token and not apns_token:
         frappe.throw("Missing device token")
 
-    # ⬇️ TU SA ROZHODNE, ČI JE TO Poradca ALEBO Klient
-    user_doc = get_actor_by_clerk_id(clerk_id)
+    # 1) role z Clerk (server-side)
+    role = None
+    try:
+        u = clerk_api(f"/v1/users/{clerk_id}")
+        role = (u.get("public_metadata") or {}).get("role")
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), f"register_device: clerk_api failed: {e}")
 
-    user_doc.reload()
+    # 2) vyber doctype podľa role
+    if role == "admin":
+        doctype = "Poradca"
+    else:
+        doctype = "Klient"
 
-    upsert_child_device_for_user(
-        user_doc=user_doc,
-        voip_token=voip_token,
-        apns_token=apns_token
-    )
+    name = frappe.db.get_value(doctype, {"clerk_id": clerk_id}, "name")
+    if not name:
+        frappe.throw(_(f"{doctype} not found for clerk_id"), frappe.PermissionError)
+
+    doc = frappe.get_doc(doctype, name)
+
+    # 3) append do child table "zariadenie"
+    # (bez duplicity logiky – najprv jednoduché uloženie nech vieme že to ide)
+    doc.append("zariadenie", {
+        "voip_token": voip_token,
+        "apns_token": apns_token
+    })
+
+    doc.save(ignore_permissions=True)
+    frappe.db.commit()
 
     return {
         "success": True,
-        "doctype": user_doc.doctype,
-        "name": user_doc.name
+        "doctype": doctype,
+        "name": name,
+        "role": role
     }
