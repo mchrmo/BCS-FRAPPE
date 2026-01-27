@@ -13,6 +13,11 @@ from .utils import (
 # ----------------------------------------------------------------------
 # POMOCNÉ FUNKCIE
 # ----------------------------------------------------------------------
+@frappe.whitelist(methods=["GET"], allow_guest=True)
+def test_log():
+    frappe.log_error("TEST LOG FUNGUJE", "BC Test")
+    return "OK, check error log"
+
 
 def is_friday(dt) -> bool:
     # Monday=0 ... Sunday=6, Friday=4
