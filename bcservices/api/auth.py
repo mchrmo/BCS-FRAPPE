@@ -49,40 +49,52 @@ def get_settings_public():
 @frappe.whitelist(methods=["POST"], allow_guest=True)
 def sync_user():
     """
-    iOS → /api/method/bcservices.api.auth.sync_user
-    Authorization: X-Clerk-Authorization: Bearer <jwt>
-
-    - Overí Clerk JWT
-    - Nájde alebo vytvorí BC klienta
-    - Nastaví default rolu 'client' IBA ak pole 'role' v metadata NEEXISTUJE.
+    Syncuje IBA klientov.
+    Poradca (role=admin) sa tu ignoruje.
     """
 
     clerk_id, payload = verify_clerk_bearer_and_get_sub()
 
-    # Create or update BC user
-    doc = ensure_bc_user_by_clerk(clerk_id)
-
+    # Zistíme rolu z Clerk
     try:
         u = clerk_api(f"/v1/users/{clerk_id}")
-        pub = (u.get("public_metadata") or {})
+        role = (u.get("public_metadata") or {}).get("role")
+    except Exception:
+        role = None
 
-        # 🔥 AK pole "role" NEEXISTUJE – nastavíme default
-        # Nie: if not existing_role
+    # -------------------------------------------------
+    # 🔴 AK JE PORADCA → NESYNCUJEME
+    # -------------------------------------------------
+    if role == "admin":
+        return {
+            "success": True,
+            "skipped": True,
+            "reason": "advisor"
+        }
+
+    # -------------------------------------------------
+    # 🟢 KLIENT → SYNC
+    # -------------------------------------------------
+    doc = ensure_bc_user_by_clerk(clerk_id)
+
+    # nastavíme default rolu len ak neexistuje
+    try:
+        pub = (u.get("public_metadata") or {})
         if "role" not in pub:
             pub["role"] = "client"
-
             clerk_api(
                 f"/v1/users/{clerk_id}",
                 method="PATCH",
                 json_body={"public_metadata": pub}
             )
-
-        # Ak pole role existuje (admin, client, čokoľvek) → nemeníme
-
     except Exception as e:
         frappe.log_error(f"Clerk role sync failed: {e}", "BC Clerk Sync")
 
-    return {"success": True, "userId": clerk_id}
+    return {
+        "success": True,
+        "userId": clerk_id
+    }
+
 
 
 # -----------------------------------------------------------------------------
