@@ -22,12 +22,6 @@ def get_settings():
 # ---------------------------------------------------
 # Clerk helpers
 # ---------------------------------------------------
-def get_klient_by_clerk_or_throw(clerk_id: str):
-    name = frappe.db.get_value("Klient", {"clerk_id": clerk_id}, "name")
-    if not name:
-        frappe.throw("User not found", frappe.PermissionError)
-    return name
-
 
 def _clerk_issuer():
     settings = get_settings()
@@ -241,7 +235,6 @@ def send_voip_push(device_token: str, payload: dict):
 
     bundle_id = settings.apn_bundle_id
     prod = cint(settings.apn_production) == 1
-
     host = "https://api.push.apple.com" if prod else "https://api.sandbox.push.apple.com"
     url = f"{host}/3/device/{device_token}"
 
@@ -254,120 +247,83 @@ def send_voip_push(device_token: str, payload: dict):
         "content-type": "application/json",
     }
 
+    frappe.log_error(
+        title="APNS VOIP DEBUG – REQUEST",
+        message=f"""
+HOST: {host}
+URL: {url}
+TOPIC: {headers['apns-topic']}
+TOKEN PREFIX: {device_token[:12]}
+PAYLOAD:
+{payload}
+"""
+    )
+
     with httpx.Client(http2=True, timeout=10) as client:
-        resp = client.post(url, headers=headers, content=json.dumps(payload))
+        resp = client.post(url, headers=headers, json=payload)
+
+    frappe.log_error(
+        title="APNS VOIP DEBUG – RESPONSE",
+        message=f"""
+STATUS: {resp.status_code}
+HEADERS: {dict(resp.headers)}
+BODY: {resp.text}
+"""
+    )
 
     if resp.status_code != 200:
-        try:
-            detail = resp.json()
-        except Exception:
-            detail = resp.text
-
-        frappe.log_error(f"APNs error {resp.status_code}: {detail}", "BC APNs")
-        frappe.throw(f"APNs error {resp.status_code}: {detail}")
+        frappe.throw(f"APNs error {resp.status_code}: {resp.text}")
 
     return {"apns_id": resp.headers.get("apns-id")}
 
-def get_actor_by_clerk_id(clerk_id: str):
-    """
-    Vráti Document Klient podľa clerk_id.
-    Používa sa pre device, call, chat, push.
-    """
-    name = frappe.db.get_value("Klient", {"clerk_id": clerk_id}, "name")
-    if not name:
-        frappe.throw("User not found", frappe.PermissionError)
 
-    return frappe.get_doc("Klient", name)
+
 
 def get_actor_by_clerk_id(clerk_id: str):
     """
-    Podľa Clerk public_metadata.role vráti:
-    - Poradca (ak role == admin)
-    - Klient (inak)
+    Vráti tuple: (doctype, doc)
     """
-    from .utils import clerk_api  # ak je v inom súbore, uprav import
+    poradca = frappe.db.get_value("Poradca", {"clerk_id": clerk_id}, "name")
+    if poradca:
+        return "Poradca", frappe.get_doc("Poradca", poradca)
 
-    # 1. Zistíme rolu z Clerk
-    try:
-        u = clerk_api(f"/v1/users/{clerk_id}")
-        role = (u.get("public_metadata") or {}).get("role")
-    except Exception:
-        role = None
+    klient = frappe.db.get_value("Klient", {"clerk_id": clerk_id}, "name")
+    if klient:
+        return "Klient", frappe.get_doc("Klient", klient)
 
-    # 2. Admin = Poradca
-    if role == "admin":
-        name = frappe.db.get_value("Poradca", {"clerk_id": clerk_id}, "name")
-        if not name:
-            frappe.throw("Advisor not found", frappe.PermissionError)
-        return frappe.get_doc("Poradca", name)
-
-    # 3. Inak Klient
-    name = frappe.db.get_value("Klient", {"clerk_id": clerk_id}, "name")
-    if not name:
-        frappe.throw("Client not found", frappe.PermissionError)
-    return frappe.get_doc("Klient", name)
-
+    return None, None
 
 # ---------------------------------------------------
 # Device helper
 # ---------------------------------------------------
 
 def upsert_child_device_for_user(user_doc, voip_token=None, apns_token=None):
-    """
-    Zapíše / aktualizuje zariadenie pre:
-    - Klient
-    - Poradca
-
-    Automaticky zistí správny child field.
-    """
-
-    # 🔑 správny fieldname podľa Doctype
-    if user_doc.doctype == "Klient":
-        child_field = "zariadenie"
-    elif user_doc.doctype == "Poradca":
-        child_field = "zariadenie"  # ⚠️ UISTI SA, ŽE JE ROVNAKÝ
-    else:
-        frappe.throw(f"Unsupported doctype for device: {user_doc.doctype}")
-
-    devices = user_doc.get(child_field) or []
-    modified = False
-
-    # odstránenie duplicitných tokenov
+    # odstráň rovnaký token inde (OK, to máš správne)
     if voip_token:
-        rows = frappe.get_all(
-            "Zariadenie",
-            filters={"voip_token": voip_token},
-            fields=["name", "parent"]
-        )
-        for r in rows:
-            if r["parent"] != user_doc.name:
-                frappe.db.delete("Zariadenie", r["name"])
+        frappe.db.sql("""
+            DELETE FROM `tabZariadenie`
+            WHERE voip_token=%s
+              AND NOT (parent=%s AND parenttype=%s)
+        """, (voip_token, user_doc.name, user_doc.doctype))
 
-    found = None
+    user_doc.reload()
+
+    devices = user_doc.get("zariadenie") or []
+
+    # update existujúce
     for d in devices:
         if voip_token and d.voip_token == voip_token:
-            found = d
-            break
-        if apns_token and d.apns_token == apns_token:
-            found = d
-            break
+            if apns_token:
+                d.apns_token = apns_token
+            user_doc.save(ignore_permissions=True)
+            frappe.db.commit()
+            return True
 
-    if found:
-        if voip_token and found.voip_token != voip_token:
-            found.voip_token = voip_token
-            modified = True
-        if apns_token and found.apns_token != apns_token:
-            found.apns_token = apns_token
-            modified = True
-    else:
-        user_doc.append(child_field, {
-            "doctype": "Zariadenie",
-            "voip_token": voip_token,
-            "apns_token": apns_token
-        })
-        modified = True
+    # append nové zariadenie
+    row = user_doc.append("zariadenie", {})
+    row.voip_token = voip_token
+    row.apns_token = apns_token
 
-    if modified:
-        user_doc.save(ignore_permissions=True)
-
+    user_doc.save(ignore_permissions=True)
+    frappe.db.commit()
     return True
