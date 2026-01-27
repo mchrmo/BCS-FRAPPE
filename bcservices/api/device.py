@@ -18,13 +18,9 @@ def register_device():
     if not voip_token and not apns_token:
         frappe.throw("Missing device token")
 
-    doctype, user_doc = get_actor_by_clerk_id(clerk_id)
-    if not user_doc:
-        frappe.throw("Unknown user")
+    user_doc = get_actor_by_clerk_id(clerk_id)
 
-    # --- TOTO JE TA MOŽNÁ CHYBA ---
-    # Musíme sa uistiť, že objekt user_doc má čerstvé metadáta z DB
-    user_doc.reload() 
+    user_doc.reload()
 
     upsert_child_device_for_user(
         user_doc=user_doc,
@@ -32,7 +28,4 @@ def register_device():
         apns_token=apns_token
     )
 
-    return {
-        "success": True,
-        "actor": doctype,
-    }
+    return {"success": True}
