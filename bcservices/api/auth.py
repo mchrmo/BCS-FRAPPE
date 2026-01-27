@@ -48,53 +48,38 @@ def get_settings_public():
 
 @frappe.whitelist(methods=["POST"], allow_guest=True)
 def sync_user():
-    """
-    Syncuje IBA klientov.
-    Poradca (role=admin) sa tu ignoruje.
-    """
-
     clerk_id, payload = verify_clerk_bearer_and_get_sub()
 
-    # Zistíme rolu z Clerk
-    try:
-        u = clerk_api(f"/v1/users/{clerk_id}")
-        role = (u.get("public_metadata") or {}).get("role")
-    except Exception:
-        role = None
+    # 🔹 načítaj Clerk user
+    u = clerk_api(f"/v1/users/{clerk_id}")
+    role = (u.get("public_metadata") or {}).get("role")
 
-    # -------------------------------------------------
-    # 🔴 AK JE PORADCA → NESYNCUJEME
-    # -------------------------------------------------
+    # 🔴 AK JE PORADCA → NIČ NEVYTVÁRAJ
     if role == "admin":
         return {
             "success": True,
-            "skipped": True,
-            "reason": "advisor"
+            "userId": clerk_id,
+            "role": "admin"
         }
 
-    # -------------------------------------------------
-    # 🟢 KLIENT → SYNC
-    # -------------------------------------------------
+    # 🟢 IBA CLIENT
     doc = ensure_bc_user_by_clerk(clerk_id)
 
-    # nastavíme default rolu len ak neexistuje
-    try:
-        pub = (u.get("public_metadata") or {})
-        if "role" not in pub:
-            pub["role"] = "client"
-            clerk_api(
-                f"/v1/users/{clerk_id}",
-                method="PATCH",
-                json_body={"public_metadata": pub}
-            )
-    except Exception as e:
-        frappe.log_error(f"Clerk role sync failed: {e}", "BC Clerk Sync")
+    # default role handling (ako máš teraz)
+    pub = u.get("public_metadata") or {}
+    if "role" not in pub:
+        pub["role"] = "client"
+        clerk_api(
+            f"/v1/users/{clerk_id}",
+            method="PATCH",
+            json_body={"public_metadata": pub}
+        )
 
     return {
         "success": True,
-        "userId": clerk_id
+        "userId": clerk_id,
+        "role": "client"
     }
-
 
 
 # -----------------------------------------------------------------------------
@@ -264,23 +249,55 @@ def after_insert_bc_pouzivatel(doc, method=None):
     except Exception as e:
         frappe.log_error(f"Clerk create failed: {e}", "BC Clerk Sync")
 
-
-
-def on_update_bc_pouzivatel(doc, method=None):
-    if not getattr(doc, "clerk_id", None):
+def after_insert_bc_poradca(doc, method=None):
+    if getattr(doc, "clerk_id", None):
+        return
+    if not doc.email or not doc.heslo:
         return
 
     try:
-        pw = doc.heslo   # <-- FIX
-
-        _patch_clerk_user(
-            clerk_id=doc.clerk_id,
-            email=getattr(doc, "email", None),
-            password=pw,
-            new_username=getattr(doc, "username", None),
+        res = clerk_api(
+            "/v1/users",
+            method="POST",
+            json_body={
+                "email_address": [doc.email],
+                "password": doc.heslo,
+                "username": _normalize_username_base(doc.meno),
+                "public_metadata": {
+                    "role": "admin"
+                }
+            }
         )
+
+        clerk_id = res.get("id")
+        if clerk_id:
+            frappe.db.set_value("Poradca", doc.name, "clerk_id", clerk_id)
+
     except Exception as e:
-        frappe.log_error(f"Clerk update failed: {e}", "BC Clerk Sync")
+        frappe.log_error(f"Clerk create poradca failed: {e}", "BC Clerk Sync")
+
+
+def on_update_bc_poradca(doc, method=None):
+    if not doc.clerk_id:
+        return
+
+    try:
+        patch = {
+            "public_metadata": {"role": "admin"},
+            "email_address": [doc.email],
+        }
+
+        if doc.heslo:
+            patch["password"] = doc.heslo
+
+        clerk_api(
+            f"/v1/users/{doc.clerk_id}",
+            method="PATCH",
+            json_body=patch
+        )
+
+    except Exception as e:
+        frappe.log_error(f"Clerk update poradca failed: {e}", "BC Clerk Sync")
 
 @frappe.whitelist(methods=["POST", "GET"], allow_guest=True) 
 def get_my_advisors():
@@ -338,3 +355,20 @@ def get_my_advisors():
         "advisors": advisors_list
     }
 
+def on_update_bc_pouzivatel(doc, method=None):
+    if not getattr(doc, "clerk_id", None):
+        return
+
+    try:
+        pw = doc.heslo   # <-- FIX
+
+        _patch_clerk_user(
+            clerk_id=doc.clerk_id,
+            email=getattr(doc, "email", None),
+            password=pw,
+            new_username=getattr(doc, "username", None),
+        )
+    except Exception as e:
+        frappe.log_error(f"Clerk update failed: {e}", "BC Clerk Sync")
+
+        
