@@ -279,6 +279,33 @@ def get_actor_by_clerk_id(clerk_id: str):
 
     return frappe.get_doc("Klient", name)
 
+def get_actor_by_clerk_id(clerk_id: str):
+    """
+    Podľa Clerk public_metadata.role vráti:
+    - Poradca (ak role == admin)
+    - Klient (inak)
+    """
+    from .utils import clerk_api  # ak je v inom súbore, uprav import
+
+    # 1. Zistíme rolu z Clerk
+    try:
+        u = clerk_api(f"/v1/users/{clerk_id}")
+        role = (u.get("public_metadata") or {}).get("role")
+    except Exception:
+        role = None
+
+    # 2. Admin = Poradca
+    if role == "admin":
+        name = frappe.db.get_value("Poradca", {"clerk_id": clerk_id}, "name")
+        if not name:
+            frappe.throw("Advisor not found", frappe.PermissionError)
+        return frappe.get_doc("Poradca", name)
+
+    # 3. Inak Klient
+    name = frappe.db.get_value("Klient", {"clerk_id": clerk_id}, "name")
+    if not name:
+        frappe.throw("Client not found", frappe.PermissionError)
+    return frappe.get_doc("Klient", name)
 
 
 # ---------------------------------------------------
