@@ -293,6 +293,17 @@ def get_actor_by_clerk_id(clerk_id: str):
 
     return None, None
 
+
+def get_klient_by_clerk_or_throw(clerk_id: str):
+    """
+    Pomocná funkcia, ktorá vráti 'name' (ID) klienta podľa jeho Clerk ID.
+    Ak neexistuje, vyhodí chybu.
+    """
+    klient = frappe.db.get_value("Klient", {"clerk_id": clerk_id}, "name")
+    if not klient:
+        frappe.throw(frappe._("Klient s Clerk ID {0} nebol nájdený.").format(clerk_id), frappe.PermissionError)
+    return klient
+
 # ---------------------------------------------------
 # Device helper
 # ---------------------------------------------------
