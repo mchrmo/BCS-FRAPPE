@@ -268,6 +268,13 @@ def send_voip_push(device_token: str, payload: dict):
 
     return {"apns_id": resp.headers.get("apns-id")}
 
+def get_actor_by_clerk_id(clerk_id: str):
+    name = frappe.db.get_value("Klient", {"clerk_id": clerk_id}, "name")
+    if not name:
+        frappe.throw("User not found", frappe.PermissionError)
+    return frappe.get_doc("Klient", name)
+
+
 # ---------------------------------------------------
 # Device helper
 # ---------------------------------------------------
