@@ -11,13 +11,11 @@ def listings():
     )
 
     out = []
-
     for row in rows:
         tok = frappe.get_doc("Token", row.token)
-
         out.append({
-            "id": row.name,                  # ID inzerátu
-            "tokenId": tok.name,             # <-- TOTO MUSÍ BYŤ
+            "id": row.name,
+            "tokenId": tok.name,
             "token": {
                 "id": tok.name,
                 "issuedYear": tok.vydany_rok,
@@ -37,21 +35,26 @@ def call_logs(userId: str = None):
     if not userId:
         frappe.throw("Missing userId", frappe.ValidationError)
 
-    # nájdi klienta podľa Clerk ID
-    bc_user = frappe.db.get_value("Klient", {"clerk_id": userId}, "name")
+    # Nájdi interné meno (Klient alebo Poradca) podľa Clerk ID
+    # Skúsime obe tabuľky, aby logy videl každý
+    bc_user = frappe.db.get_value("Klient", {"clerk_id": userId}, "name") or \
+              frappe.db.get_value("Poradca", {"clerk_id": userId}, "name")
+
     if not bc_user:
         return {"success": True, "items": []}
 
     logs = frappe.get_all(
         "Dennik hovorov",
-        or_filters=[
-            {"volajuci": bc_user},
-            {"poradca": bc_user},
+        filters=[
+            ["klient", "=", bc_user],
+            ["poradca", "=", bc_user]
         ],
+        filter_condition="or",
         fields=[
             "name",
-            "volajuci",
+            "klient",
             "poradca",
+            "kto_volal", # Pridané nové pole
             "zaciatok_datum",
             "zaciatok_cas",
             "koniec_datum",
@@ -62,15 +65,27 @@ def call_logs(userId: str = None):
         order_by="zaciatok_datum desc, zaciatok_cas desc"
     )
 
-    return {"success": True, "items": logs}
+    # Premapovanie na čistý JSON pre appku
+    out = []
+    for log in logs:
+        out.append({
+            "id": log.name,
+            "client": log.klient,
+            "advisor": log.poradca,
+            "callerRole": log.kto_volal, # "Klient" alebo "Poradca"
+            "startedAtDate": log.zaciatok_datum,
+            "startedAtTime": log.zaciatok_cas,
+            "durationSeconds": log.trvanie_s or 0,
+            "tokenId": log.pouzity_token
+        })
 
+    return {"success": True, "items": out}
 
 @frappe.whitelist(methods=["GET"], allow_guest=True)
 def history(userId: str = None):
     if not userId:
         return {"success": False, "error": "Missing userId"}
 
-    # OPRAVA: Odstránené ignore_permissions, ktoré db.get_value nepodporuje
     bc_user = frappe.db.get_value("Klient", {"clerk_id": userId}, "name")
     
     if not bc_user:
@@ -81,23 +96,18 @@ def history(userId: str = None):
         filters={"docstatus": ["<", 2]},
         or_filters={"predavajuci": bc_user, "kupujuci": bc_user},
         fields=["name", "predavajuci", "kupujuci", "suma_eur", "datum", "inzerat"],
-        order_by="datum desc",
-        ignore_permissions=True
+        order_by="datum desc"
     )
 
     out = []
     for row in transactions:
         vydany_rok = 2026
-        
         if row.get("inzerat"):
-            # OPRAVA: Odstránené ignore_permissions
             token_id = frappe.db.get_value("Inzerat", row.inzerat, "token")
             if token_id:
-                # OPRAVA: Odstránené ignore_permissions
                 vydany_rok = frappe.db.get_value("Token", token_id, "vydany_rok") or 2026
 
         direction = "sell" if row.predavajuci == bc_user else "buy"
-        
         tx_type = "trade"
         if not row.predavajuci and row.kupujuci == bc_user:
             tx_type = "purchase"
@@ -113,33 +123,26 @@ def history(userId: str = None):
 
     return {"success": True, "items": out}
 
-# Ostatné funkcie (listings, call_logs, list_token) ostanú tak ako sú, 
-# len v nich skontroluj či nepoužívaš frappe.db.get_value s ignore_permissions.
 @frappe.whitelist(methods=["POST"], allow_guest=True)
 def cancel_listing():
-    # Získame dáta z requestu
     data = frappe.form_dict
     listing_id = data.get("listingId")
     
     if not listing_id:
         return {"success": False, "error": "Chýba listingId"}
 
-    # Načítame inzerát
     if not frappe.db.exists("Inzerat", listing_id):
         return {"success": False, "error": "Inzerát neexistuje"}
     
     listing = frappe.get_doc("Inzerat", listing_id)
 
-    # Kontrola stavu - rušiť sa dá len otvorený inzerát
     if listing.stav != "open":
-        return {"success": False, "error": "Inzerát už nie je možné zrušiť (stav: {})".format(listing.stav)}
+        return {"success": False, "error": f"Inzerát už nie je možné zrušiť (stav: {listing.stav})"}
 
     try:
-        # 1. Zmeníme stav inzerátu na zrušený
         listing.stav = "cancelled"
         listing.save(ignore_permissions=True)
 
-        # 2. Vrátime tokenu stav "active", aby sa znova započítaval do balancu
         if listing.token:
             frappe.db.set_value("Token", listing.token, "stav", "active")
 
@@ -151,17 +154,8 @@ def cancel_listing():
 
 @frappe.whitelist(methods=["POST"], allow_guest=True)
 def list_token(sellerId: str = None, tokenId: str = None, priceEur: float = None):
-    """
-    Client lists a token for sale.
-    Overí:
-    - Clerk JWT (X-Clerk-Authorization: Bearer <jwt>)
-    - že user listuje IBA svoj token
-    """
-
-    # 👇 Over Clerk JWT
     clerk_id, payload = verify_clerk_bearer_and_get_sub()
 
-    # 👇 Presne ako pri balance()
     sellerId = sellerId or frappe.form_dict.get("sellerId")
     tokenId = tokenId or frappe.form_dict.get("tokenId")
     priceEur = priceEur or frappe.form_dict.get("priceEur")
@@ -169,34 +163,22 @@ def list_token(sellerId: str = None, tokenId: str = None, priceEur: float = None
     if not sellerId or not tokenId or priceEur is None:
         frappe.throw("Missing parameters", frappe.ValidationError)
 
-    # 👇 User môže listovať iba SVOJE tokeny
     if sellerId != clerk_id:
         frappe.throw("Forbidden", frappe.PermissionError)
 
-    # 👇 Nájdi Klient podľa Clerk ID
-    user_doc = frappe.get_all(
-        "Klient",
-        filters={"clerk_id": clerk_id},
-        limit=1
-    )
+    bc_user = frappe.db.get_value("Klient", {"clerk_id": clerk_id}, "name")
 
-    if not user_doc:
+    if not bc_user:
         frappe.throw("User not found", frappe.DoesNotExistError)
 
-    bc_user = user_doc[0].name
-
-    # 👇 Nájdi token
     token = frappe.get_doc("Token", tokenId)
 
-    # 👇 Token musí patriť užívateľovi
     if token.aktualny_drzitel != bc_user:
         frappe.throw("Token does not belong to this user", frappe.PermissionError)
 
-    # 👇 Token musí byť aktívny
     if token.stav != "active":
         frappe.throw("Token is not active", frappe.ValidationError)
 
-    # 👇 Vytvor nový inzerát
     inz = frappe.get_doc({
         "doctype": "Inzerat",
         "predavajuci": bc_user,
@@ -206,7 +188,6 @@ def list_token(sellerId: str = None, tokenId: str = None, priceEur: float = None
     })
     inz.insert(ignore_permissions=True)
 
-    # 👇 Označ token ako listed
     token.stav = "listed"
     token.save(ignore_permissions=True)
 
