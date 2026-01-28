@@ -63,65 +63,71 @@ def start():
     c1_id = data.get("callerId")
     c2_id = data.get("advisorId")
 
-    frappe.log_error(f"--- ŠTART --- ID1: {c1_id}, ID2: {c2_id}", log_tag)
-
     try:
-        # 1. Overenie kto volá (cez token)
+        # 1. Overenie kto drží telefón (autentifikovaný používateľ)
         auth_clerk_id, _ = verify_clerk_bearer_and_get_sub()
 
-        # 2. Musíme nájsť, kto je kto v našej DB bez ohľadu na to, čo poslal mobil
-        # Skúsime nájsť oboch v oboch tabuľkách
+        # 2. Identifikácia účastníkov v DB
         p1_klient = frappe.db.get_value("Klient", {"clerk_id": c1_id}, "name")
         p1_poradca = frappe.db.get_value("Poradca", {"clerk_id": c1_id}, "name")
         
         p2_klient = frappe.db.get_value("Klient", {"clerk_id": c2_id}, "name")
         p2_poradca = frappe.db.get_value("Poradca", {"clerk_id": c2_id}, "name")
 
-        # Určíme, kto je reálny KLIENT a kto PORADCA pre tento hovor
         real_klient = p1_klient or p2_klient
         real_poradca = p1_poradca or p2_poradca
 
         if not real_klient or not real_poradca:
-            frappe.log_error(f"Nenájdená dvojica! Klient: {real_klient}, Poradca: {real_poradca}", log_tag)
-            return {"success": False, "error": "Participants mismatch"}
+            return {"success": False, "error": "Participants not found"}
 
-        # 3. Kto má dostať PUSH? (Ten, kto teraz NEVOLÁ)
+        # 3. Určenie smeru hovoru (Kto volal)
+        # Ak je volajúci (c1_id) v tabuľke Klient, volá Klient. Inak volá Poradca.
+        kto_volal = "Klient" if p1_klient else "Poradca"
+
+        # 4. Určenie cieľa pre PUSH (vždy ten druhý, kto nie je auth_clerk_id)
         if auth_clerk_id == c1_id:
-            # Volá ID1, push dostane ID2
             target_doctype = "Poradca" if p2_poradca else "Klient"
             target_id = p2_poradca or p2_klient
             display_name = p1_poradca or p1_klient
         else:
-            # Volá ID2, push dostane ID1
             target_doctype = "Poradca" if p1_poradca else "Klient"
             target_id = p1_poradca or p1_klient
             display_name = p2_poradca or p2_klient
 
-        # 4. Zápis hovoru a PUSH (zvyšok ostáva rovnaký)
+        # 5. Zápis do Denníka hovorov s novými názvami polí
         now = now_datetime()
         call_doc = frappe.get_doc({
             "doctype": "Dennik hovorov",
-            "volajuci": real_klient,
-            "poradca": real_poradca,
+            "klient": real_klient,      # Link na Andreja
+            "poradca": real_poradca,    # Link na Beatu
+            "kto_volal": kto_volal,     # "Klient" alebo "Poradca"
             "zaciatok_datum": now.date(),
             "zaciatok_cas": now.strftime("%H:%M:%S"),
         })
         call_doc.insert(ignore_permissions=True)
         frappe.db.commit()
 
+        # 6. Odoslanie PUSH
         target_doc = frappe.get_doc(target_doctype, target_id)
         devices = target_doc.get("zariadenie") or []
         sent_count = 0
         for d in devices:
             token = getattr(d, "voip_token", None) or getattr(d, "voipToken", None)
-            if token and send_voip_push(token, {"callId": call_doc.name, "callerName": display_name}):
-                sent_count += 1
+            if token:
+                payload = {
+                    "callId": call_doc.name,
+                    "callerId": auth_clerk_id,
+                    "callerName": display_name,
+                    "title": "Prichádzajúci hovor"
+                }
+                if send_voip_push(token, payload):
+                    sent_count += 1
 
         return {"success": True, "callId": call_doc.name, "sent_to": sent_count}
 
     except Exception:
         frappe.log_error(traceback.format_exc(), log_tag)
-        return {"success": False, "error": "Error"}
+        return {"success": False, "error": "Internal server error"}
 
 # ----------------------------------------------------------------------
 # ACCEPT CALL (Opravená autorizácia)
