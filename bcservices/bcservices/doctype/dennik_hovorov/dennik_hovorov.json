@@ -19,15 +19,15 @@
   {
    "fieldname": "volajuci",
    "fieldtype": "Link",
-   "label": "Volaj\u00faci",
+   "label": "Volajúci",
    "options": "Klient"
   },
   {
    "fieldname": "poradca",
    "fieldtype": "Link",
-   "hidden": 1,
+   "hidden": 0,
    "label": "Poradca",
-   "options": "Klient"
+   "options": "Poradca"
   },
   {
    "fieldname": "trvanie_s",
@@ -37,34 +37,34 @@
   {
    "fieldname": "pouzity_token",
    "fieldtype": "Link",
-   "label": "Pou\u017eit\u00fd token",
+   "label": "Použitý token",
    "options": "Token"
   },
   {
    "fieldname": "zaciatok_datum",
    "fieldtype": "Date",
-   "label": "Za\u010diatok d\u00e1tum"
+   "label": "Začiatok dátum"
   },
   {
    "fieldname": "zaciatok_cas",
    "fieldtype": "Time",
-   "label": "Za\u010diatok \u010das"
+   "label": "Začiatok čas"
   },
   {
    "fieldname": "koniec_datum",
    "fieldtype": "Date",
-   "label": "Koniec d\u00e1tum"
+   "label": "Koniec dátum"
   },
   {
    "fieldname": "koniec_cas",
    "fieldtype": "Time",
-   "label": "Koniec \u010da\u0161"
+   "label": "Koniec čaš"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-12-01 12:10:30.643517",
+ "modified": "2026-01-28 16:30:00.000000",
  "modified_by": "Administrator",
  "module": "BCServices",
  "name": "Dennik hovorov",
