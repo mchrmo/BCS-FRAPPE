@@ -6,8 +6,9 @@
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
-  "volajuci",
+  "klient",
   "poradca",
+  "kto_volal",
   "zaciatok_datum",
   "zaciatok_cas",
   "koniec_datum",
@@ -17,17 +18,25 @@
  ],
  "fields": [
   {
-   "fieldname": "volajuci",
+   "fieldname": "klient",
    "fieldtype": "Link",
-   "label": "Volajúci",
-   "options": "Klient"
+   "label": "Klient",
+   "options": "Klient",
+   "reqd": 1
   },
   {
    "fieldname": "poradca",
    "fieldtype": "Link",
-   "hidden": 0,
    "label": "Poradca",
-   "options": "Poradca"
+   "options": "Poradca",
+   "reqd": 1
+  },
+  {
+   "fieldname": "kto_volal",
+   "fieldtype": "Select",
+   "label": "Kto volal",
+   "options": "Klient\nPoradca",
+   "reqd": 1
   },
   {
    "fieldname": "trvanie_s",
@@ -64,7 +73,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-01-28 16:30:00.000000",
+ "modified": "2026-01-28 17:55:00.000000",
  "modified_by": "Administrator",
  "module": "BCServices",
  "name": "Dennik hovorov",
