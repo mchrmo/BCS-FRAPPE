@@ -97,17 +97,23 @@ def start():
             frappe.log_error(f"Chyba pri zápise do Denníka (Hovor pôjde bez záznamu): {str(db_err)}", log_tag)
 
         # 5. Odosielanie PUSH notifikácií
+        # 5. Odosielanie PUSH notifikácií
         sent_count = 0
         for d in devices:
             token = getattr(d, "voip_token", None) or getattr(d, "voipToken", None)
             if token:
                 try:
                     frappe.log_error(f"Odosielam VoIP push na: {token[:10]}...", log_tag)
-                    res = send_voip_push(token, {
+                    
+                    # TU JE ZMENA: Pridávame callerId, aby iOS kód nepadol na guard-e
+                    payload = {
                         "callId": call_name,
+                        "callerId": caller_clerk,  # Toto chýbalo v logoch iPhonu!
                         "callerName": caller_name or "Neznámy klient",
                         "title": "Prichádzajúci hovor"
-                    })
+                    }
+                    
+                    res = send_voip_push(token, payload)
                     if res:
                         sent_count += 1
                 except Exception as p_err:
