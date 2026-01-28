@@ -105,7 +105,7 @@ def start():
                 try:
                     frappe.log_error(f"Odosielam VoIP push na: {token[:10]}...", log_tag)
                     
-                    # TU JE ZMENA: Pridávame callerId, aby iOS kód nepadol na guard-e
+                    # TU JE ZMENA: Pridávame callerId, aby iOS kód nepadol na guard
                     payload = {
                         "callId": call_name,
                         "callerId": caller_clerk,  # Toto chýbalo v logoch iPhonu!
