@@ -29,32 +29,33 @@ def listings():
         })
 
     return {"success": True, "items": out}
-
+	
 @frappe.whitelist(methods=["GET"], allow_guest=True)
 def call_logs(userId: str = None):
     if not userId:
-        frappe.throw("Missing userId", frappe.ValidationError)
+        return {"success": False, "error": "Missing userId"}
 
-    # Nájdi interné meno (Klient alebo Poradca) podľa Clerk ID
-    # Skúsime obe tabuľky, aby logy videl každý
+    # Nájdi interné meno podľa Clerk ID (skúsime obe tabuľky)
     bc_user = frappe.db.get_value("Klient", {"clerk_id": userId}, "name") or \
               frappe.db.get_value("Poradca", {"clerk_id": userId}, "name")
 
     if not bc_user:
         return {"success": True, "items": []}
 
+    # OPRAVA FILTRA: Musí sedieť s novými názvami polí v JSON/DB
     logs = frappe.get_all(
         "Dennik hovorov",
-        filters=[
-            ["klient", "=", bc_user],
-            ["poradca", "=", bc_user]
-        ],
-        filter_condition="or",
+        filters={
+            "klient": bc_user # Ak je bc_user klient, ukáž mu jeho hovory
+        },
+        or_filters={
+            "poradca": bc_user # Ak je bc_user poradca, pridaj aj tie
+        },
         fields=[
             "name",
-            "klient",
+            "klient",      # Pôvodne volajuci
             "poradca",
-            "kto_volal", # Pridané nové pole
+            "kto_volal",
             "zaciatok_datum",
             "zaciatok_cas",
             "koniec_datum",
@@ -65,21 +66,7 @@ def call_logs(userId: str = None):
         order_by="zaciatok_datum desc, zaciatok_cas desc"
     )
 
-    # Premapovanie na čistý JSON pre appku
-    out = []
-    for log in logs:
-        out.append({
-            "id": log.name,
-            "client": log.klient,
-            "advisor": log.poradca,
-            "callerRole": log.kto_volal, # "Klient" alebo "Poradca"
-            "startedAtDate": log.zaciatok_datum,
-            "startedAtTime": log.zaciatok_cas,
-            "durationSeconds": log.trvanie_s or 0,
-            "tokenId": log.pouzity_token
-        })
-
-    return {"success": True, "items": out}
+    return {"success": True, "items": logs}
 
 @frappe.whitelist(methods=["GET"], allow_guest=True)
 def history(userId: str = None):
