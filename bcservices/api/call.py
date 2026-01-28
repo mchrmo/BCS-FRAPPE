@@ -89,19 +89,24 @@ def start():
 
     # 5. Odosielanie PUSH
     sent_count = 0
+    frappe.log_error(f"5. ZAČÍNAM CYKLUS PUSH, počet zariadení: {len(devices)}", "BC Call Debug")
+    
     for d in devices:
         token = getattr(d, "voip_token", None) or getattr(d, "voipToken", None)
         if token:
-            frappe.log_error(f"5. SKÚŠAM PUSH: Token začína na {token[:10]}", "BC Call Debug")
             try:
-                send_voip_push(token, {
+                frappe.log_error(f"Pripravujem odoslanie na token: {token[:10]}...", "BC Call Debug")
+                res = send_voip_push(token, {
                     "callId": call.name,
                     "callerName": caller_name,
                     "title": "Prichádzajúci hovor"
                 })
-                sent_count += 1
+                if res:
+                    sent_count += 1
+                    frappe.log_error(f"Push úspešne odovzdaný funkcii", "BC Call Debug")
             except Exception as e:
-                frappe.log_error(f"!!! PUSH FAIL: {str(e)}", "BC Call Debug")
+                # TOTO JE KĽÚČOVÉ: Ak to padne, tu to uvidíme
+                frappe.log_error(f"KRITICKÝ PÁD v start_call: {str(e)}\n{frappe.get_traceback()}", "BC Call Debug")
 
     return {"success": True, "callId": call.name, "sent_to": sent_count}
 
