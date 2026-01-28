@@ -32,38 +32,40 @@ def listings():
 	
 @frappe.whitelist(methods=["GET"], allow_guest=True)
 def call_logs(userId: str = None):
+    # 1. Validácia vstupu
     if not userId:
         return {"success": False, "error": "Missing userId"}
 
-    # Nájdi interné meno podľa Clerk ID (skúsime obe tabuľky)
+    # 2. Zistíme meno používateľa (či je Klient alebo Poradca)
+    # Hľadáme v oboch tabuľkách podľa Clerk ID
     bc_user = frappe.db.get_value("Klient", {"clerk_id": userId}, "name") or \
               frappe.db.get_value("Poradca", {"clerk_id": userId}, "name")
 
+    # Ak používateľ neexistuje v DB, vrátime prázdny zoznam (nie chybu)
     if not bc_user:
         return {"success": True, "items": []}
 
-    # OPRAVA FILTRA: Musí sedieť s novými názvami polí v JSON/DB
+    # 3. Načítanie logov
+    # Používame or_filters, aby sme našli hovory, kde je user BUĎ klient ALEBO poradca
     logs = frappe.get_all(
         "Dennik hovorov",
-        filters={
-            "klient": bc_user # Ak je bc_user klient, ukáž mu jeho hovory
-        },
         or_filters={
-            "poradca": bc_user # Ak je bc_user poradca, pridaj aj tie
+            "klient": bc_user,
+            "poradca": bc_user
         },
         fields=[
-            "name",
-            "klient",      # Pôvodne volajuci
-            "poradca",
-            "kto_volal",
-            "zaciatok_datum",
-            "zaciatok_cas",
-            "koniec_datum",
-            "koniec_cas",
-            "trvanie_s",
-            "pouzity_token",
+            "name", 
+            "klient", 
+            "poradca", 
+            "kto_volal",     # Nové pole
+            "zaciatok_datum", 
+            "zaciatok_cas", 
+            "koniec_datum", 
+            "koniec_cas", 
+            "trvanie_s", 
+            "pouzity_token"
         ],
-        order_by="zaciatok_datum desc, zaciatok_cas desc"
+        order_by="creation desc" # Zoradenie od najnovšieho
     )
 
     return {"success": True, "items": logs}
