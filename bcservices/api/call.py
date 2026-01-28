@@ -45,11 +45,10 @@ def pick_active_token_for_holder(klient_name: str) -> str | None:
 def start():
     debug_id = frappe.generate_hash(length=4)
     log_tag = f"BC DEBUG [{debug_id}]"
-
-    frappe.log_error("--- ŠTART VOLANIA ---", log_tag)
+    frappe.log_error("--- ŠTART VOLANIA (OBOJSTRANNÝ) ---", log_tag)
 
     try:
-        # 1. Overenie identity cez Clerk
+        # 1. Kto volá? (Overenie cez Clerk)
         auth_clerk_id, _ = verify_clerk_bearer_and_get_sub()
         
         data = frappe.local.form_dict or {}
@@ -59,31 +58,35 @@ def start():
         if not caller_clerk or not advisor_clerk:
             frappe.throw(_("Missing callerId or advisorId"))
 
-        # 2. Získanie mien a správnych ID (Link validation fix)
-        caller_name = frappe.db.get_value("Klient", {"clerk_id": caller_clerk}, "name")
-        
-        # TU JE OPRAVA: Musíme získať skutočné ID (napr. PRD-0001) pre Link pole
+        # 2. Identifikácia oboch strán
+        # Zistíme meno klienta a ID poradcu
+        klient_id = frappe.db.get_value("Klient", {"clerk_id": caller_clerk}, "name")
         advisor_id = frappe.db.get_value("Poradca", {"clerk_id": advisor_clerk}, "name")
-        
-        frappe.log_error(f"DB Lookup: Klient={caller_name}, Poradca_ID={advisor_id}", log_tag)
 
-        if not advisor_id:
-            frappe.log_error(f"Kritická chyba: Poradca s Clerk ID {advisor_clerk} neexistuje!", log_tag)
-            frappe.throw(_("Advisor not found"))
+        if not klient_id or not advisor_id:
+            frappe.log_error(f"Chýba záznam v DB: Klient={klient_id}, Poradca={advisor_id}", log_tag)
+            frappe.throw(_("Participant not found in database"))
 
-        # 3. Načítanie zariadení poradcu
-        advisor_doc = frappe.get_doc("Poradca", advisor_id)
-        devices = advisor_doc.get("zariadenie") or advisor_doc.get("zariadenia") or []
-        
-        frappe.log_error(f"Počet zariadení pre push: {len(devices)}", log_tag)
+        # 3. Kto je prijímateľ? (Kto má dostať PUSH?)
+        # Ak auth_clerk_id je volajúci, push ide poradcovi. Ak je to poradca, push ide klientovi.
+        if auth_clerk_id == caller_clerk:
+            target_doctype = "Poradca"
+            target_id = advisor_id
+            display_name = frappe.db.get_value("Klient", klient_id, "username") or klient_id
+            frappe.log_error(f"Smer: Klient -> Poradca ({target_id})", log_tag)
+        else:
+            target_doctype = "Klient"
+            target_id = klient_id
+            display_name = frappe.db.get_value("Poradca", advisor_id, "name") # Alebo iné pole pre meno
+            frappe.log_error(f"Smer: Poradca -> Klient ({target_id})", log_tag)
 
-        # 4. Zápis do Denníka hovorov (s ochranou proti pádu)
+        # 4. Zápis do Denníka hovorov
         call_name = "PENDING"
         try:
             now = now_datetime()
             call_doc = frappe.get_doc({
                 "doctype": "Dennik hovorov",
-                "volajuci": caller_name,
+                "volajuci": klient_id,
                 "poradca": advisor_id,
                 "zaciatok_datum": now.date(),
                 "zaciatok_cas": now.strftime("%H:%M:%S"),
@@ -91,40 +94,32 @@ def start():
             call_doc.insert(ignore_permissions=True)
             frappe.db.commit()
             call_name = call_doc.name
-            frappe.log_error(f"Záznam v Denníku vytvorený: {call_name}", log_tag)
         except Exception as db_err:
-            # Ak zlyhá zápis do DB, zalogujeme to, ale necháme hovor pokračovať
-            frappe.log_error(f"Chyba pri zápise do Denníka (Hovor pôjde bez záznamu): {str(db_err)}", log_tag)
+            frappe.log_error(f"DB Error: {str(db_err)}", log_tag)
 
-        # 5. Odosielanie PUSH notifikácií
-        # 5. Odosielanie PUSH notifikácií
+        # 5. Načítanie zariadení prijímateľa (Target)
+        target_doc = frappe.get_doc(target_doctype, target_id)
+        devices = target_doc.get("zariadenie") or []
+        
+        # 6. Odoslanie PUSH
         sent_count = 0
         for d in devices:
             token = getattr(d, "voip_token", None) or getattr(d, "voipToken", None)
             if token:
-                try:
-                    frappe.log_error(f"Odosielam VoIP push na: {token[:10]}...", log_tag)
-                    
-                    # TU JE ZMENA: Pridávame callerId, aby iOS kód nepadol na guard
-                    payload = {
-                        "callId": call_name,
-                        "callerId": caller_clerk,  # Toto chýbalo v logoch iPhonu!
-                        "callerName": caller_name or "Neznámy klient",
-                        "title": "Prichádzajúci hovor"
-                    }
-                    
-                    res = send_voip_push(token, payload)
-                    if res:
-                        sent_count += 1
-                except Exception as p_err:
-                    frappe.log_error(f"Push zlyhal pre token {token[:10]}: {str(p_err)}", log_tag)
+                payload = {
+                    "callId": call_name,
+                    "callerId": auth_clerk_id,
+                    "callerName": display_name,
+                    "title": "Prichádzajúci hovor"
+                }
+                if send_voip_push(token, payload):
+                    sent_count += 1
 
         return {"success": True, "callId": call_name, "sent_to": sent_count}
 
     except Exception as e:
-        frappe.log_error(f"KRITICKÁ CHYBA FUNKCIE START:\n{traceback.format_exc()}", log_tag)
+        frappe.log_error(f"Kritická chyba: {traceback.format_exc()}", log_tag)
         return {"success": False, "error": str(e)}
-
 
 # ----------------------------------------------------------------------
 # ACCEPT CALL
