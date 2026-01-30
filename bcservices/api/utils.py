@@ -293,6 +293,70 @@ def get_klient_by_clerk_or_throw(clerk_id: str):
         frappe.throw(frappe._("Klient s Clerk ID {0} nebol nájdený.").format(clerk_id), frappe.PermissionError)
     return klient
 
+
+# --- Pridaj na koniec apps/bcservices/bcservices/api/utils.py ---
+
+def send_chat_push(device_token: str, title: str, body: str, custom_data: dict = None):
+    """
+    Odošle štandardnú (Chat) Push notifikáciu.
+    Rozdiel oproti VoIP: iný topic, iný push-type, iný payload.
+    """
+    settings = get_settings()
+
+    bundle_id = settings.apn_bundle_id
+    # POZOR: Pre chat notifikácie sa NEPOUŽÍVA prípona .voip!
+    # Topic musí byť presne tvoje Bundle ID (napr. com.firma.app)
+    topic = bundle_id 
+    
+    prod = cint(settings.apn_production) == 1
+    host = "https://api.push.apple.com" if prod else "https://api.sandbox.push.apple.com"
+    url = f"{host}/3/device/{device_token}"
+
+    jwt_token = _build_apns_jwt() # Použijeme tú istú funkciu na JWT ako pri VoIP
+
+    headers = {
+        "authorization": f"bearer {jwt_token}",
+        "apns-topic": topic,
+        "apns-push-type": "alert",    # ZMENA: VoIP má 'voip', Chat má 'alert'
+        "apns-priority": "10",        # 10 = poslať ihneď
+        "content-type": "application/json",
+    }
+
+    # Štandardný Apple payload pre správy
+    payload = {
+        "aps": {
+            "alert": {
+                "title": title,
+                "body": body
+            },
+            "sound": "default",
+            "badge": 1,
+            "content-available": 1 # Umožní zobudiť appku na pozadí
+        }
+    }
+    
+    # Pridáme vlastné dáta (napr. kto poslal správu, aby sa otvoril správny chat)
+    if custom_data:
+        payload.update(custom_data)
+
+    frappe.log_error(
+        title="APNS CHAT DEBUG", 
+        message=f"URL: {url}\nPayload: {json.dumps(payload)}"
+    )
+
+    # Odoslanie requestu (rovnako ako pri VoIP)
+    try:
+        with httpx.Client(http2=True, timeout=10) as client:
+            resp = client.post(url, headers=headers, json=payload)
+
+        if resp.status_code != 200:
+            frappe.log_error(f"APNs Chat Error {resp.status_code}: {resp.text}", "APNS Chat Error")
+            return False
+            
+        return True
+    except Exception as e:
+        frappe.log_error(f"APNs Connection Error: {str(e)}", "APNS Exception")
+        return False
 # ---------------------------------------------------
 # Device helper
 # ---------------------------------------------------
