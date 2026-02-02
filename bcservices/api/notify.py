@@ -9,17 +9,41 @@ def send_notification():
     # 1. Získame dáta z requestu
     data = frappe.local.form_dict
     target_clerk_id = data.get("to_user")    # Komu (Clerk ID)
-    sender_name = data.get("from_name", "Neznámy") # Kto
-    content = data.get("content", "Máte novú správu")
+    sender_clerk_id = data.get("from_user")  # 🔥 Od koho (Clerk ID) - pre vyhľadanie mena
     
-    # Bezpečnostná kontrola (voliteľné, ale dobré mať)
-    # if data.get("secret_key") != "TVOJE_TAJNE_HESLO_MEDZI_NODE_A_FRAPPE":
-    #    frappe.throw("Unauthorized", frappe.PermissionError)
+    # Pôvodné meno z Node.js (často len ID alebo 'Niekto')
+    raw_sender_name = data.get("from_name", "Neznámy")
+    
+    content = data.get("content", "Máte novú správu")
 
     if not target_clerk_id:
         return {"success": False, "error": "Missing target_clerk_id"}
 
-    # 2. Nájdeme používateľa v DB (Poradca alebo Klient)
+    # -------------------------------------------------------------------------
+    # 🔥 OPRAVA: Zistíme reálne meno odosielateľa z databázy
+    # -------------------------------------------------------------------------
+    real_sender_name = raw_sender_name # Default hodnota
+    
+    if sender_clerk_id:
+        try:
+            # Použijeme tú istú funkciu na hľadanie odosielateľa v DB
+            _, sender_doc = get_actor_by_clerk_id(sender_clerk_id)
+            
+            if sender_doc:
+                # Skúsime nájsť najlepšie dostupné meno v poradí: username -> full_name -> name
+                real_sender_name = (
+                    sender_doc.get("username") or 
+                    sender_doc.get("full_name") or 
+                    sender_doc.get("name") or 
+                    raw_sender_name
+                )
+        except Exception:
+            # Ak nastane chyba pri hľadaní, nevadí, použijeme pôvodné raw meno
+            pass
+            
+    # -------------------------------------------------------------------------
+
+    # 2. Nájdeme PRÍJEMCU v DB (Poradca alebo Klient)
     doctype, user_doc = get_actor_by_clerk_id(target_clerk_id)
     
     if not user_doc:
@@ -34,10 +58,10 @@ def send_notification():
         if d.apns_token:
             success = send_chat_push(
                 device_token=d.apns_token,
-                title=sender_name,  # Nadpis notifikácie je meno odosielateľa
-                body=content,       # Text správy
+                title=real_sender_name,  # 🔥 TU použijeme pekné meno z databázy
+                body=content,            # Text správy
                 custom_data={
-                    "clerk_id_from": data.get("from_user"), # Aby iOS vedel otvoriť chat
+                    "clerk_id_from": sender_clerk_id, # Aby iOS vedel otvoriť chat (používame ID)
                     "type": "chat"
                 }
             )
