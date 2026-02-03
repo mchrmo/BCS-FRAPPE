@@ -9,7 +9,10 @@
   "email",
   "heslo",
   "clerk_id",
-  "zariadenie"
+  "zariadenie",
+  "google_calendar_section",
+  "google_calendar_id",
+  "google_json_file"
  ],
  "fields": [
   {
@@ -37,12 +40,27 @@
    "fieldtype": "Table",
    "label": "Zariadenie",
    "options": "Zariadenie"
+  },
+  {
+   "fieldname": "google_calendar_section",
+   "fieldtype": "Section Break",
+   "label": "Google Calendar"
+  },
+  {
+   "fieldname": "google_calendar_id",
+   "fieldtype": "Data",
+   "label": "Google Calendar ID (Email)"
+  },
+  {
+   "fieldname": "google_json_file",
+   "fieldtype": "Attach",
+   "label": "Google JSON File (Credentials)"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-01-25 20:40:00.000000",
+ "modified": "2026-02-03 09:00:00.000000",
  "modified_by": "Administrator",
  "module": "BCServices",
  "name": "Poradca",
