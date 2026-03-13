@@ -199,12 +199,32 @@ def _create_clerk_user(email: str, password: str | None, preferred_username: str
 
     frappe.throw("Failed to create Clerk user", frappe.ValidationError)
 
-
 def _patch_clerk_user(clerk_id: str, email: str | None, password: str | None, new_username: str | None = None) -> None:
-    patch = {"public_metadata": {"role": "client"}}
-
+    # Email requires two-step process in Clerk
     if email:
-        patch["email_address"] = [email]
+        try:
+            resp = clerk_api(
+                "/v1/email_addresses",
+                method="POST",
+                json_body={
+                    "user_id": clerk_id,
+                    "email_address": email,
+                    "verified": True,
+                    "primary": True
+                }
+            )
+            email_id = resp.get("id")
+            if email_id:
+                clerk_api(
+                    f"/v1/users/{clerk_id}",
+                    method="PATCH",
+                    json_body={"primary_email_address_id": email_id}
+                )
+        except Exception as e:
+            frappe.log_error(f"Clerk email update failed for {clerk_id}: {e}", "BC Clerk Sync")
+
+    # Password and username
+    patch = {"public_metadata": {"role": "client"}}
     if password:
         patch["password"] = password
     if new_username:
@@ -213,7 +233,6 @@ def _patch_clerk_user(clerk_id: str, email: str | None, password: str | None, ne
     try:
         clerk_api(f"/v1/users/{clerk_id}", method="PATCH", json_body=patch)
     except Exception as e:
-        # Ignore ONLY username conflict errors
         if new_username and "username" in str(e):
             frappe.log_error(f"Clerk username update failed: {e}", "BC Clerk Sync")
         else:
@@ -371,7 +390,26 @@ def on_update_bc_pouzivatel(doc, method=None):
     except Exception as e:
         frappe.log_error(f"Clerk update failed: {e}", "BC Clerk Sync")
 
-        
+def on_trash_bc_pouzivatel(doc, method=None):
+    clerk_id = getattr(doc, "clerk_id", None)
+    if not clerk_id:
+        return
+    try:
+        clerk_api(f"/v1/users/{clerk_id}", method="DELETE")
+        frappe.log_error(f"✅ Klient deleted from Clerk: {clerk_id}", "BC Clerk Sync")
+    except Exception as e:
+        frappe.log_error(f"Clerk delete klient failed for {clerk_id}: {e}", "BC Clerk Sync")
+
+
+def on_trash_bc_poradca(doc, method=None):
+    clerk_id = getattr(doc, "clerk_id", None)
+    if not clerk_id:
+        return
+    try:
+        clerk_api(f"/v1/users/{clerk_id}", method="DELETE")
+        frappe.log_error(f"✅ Poradca deleted from Clerk: {clerk_id}", "BC Clerk Sync")
+    except Exception as e:
+        frappe.log_error(f"Clerk delete poradca failed for {clerk_id}: {e}", "BC Clerk Sync")
 # ... (Imports a funkcie get_settings_public, sync_user, sso, utils... NECHAJ) ...
 # SKOPÍRUJ SI LEN FUNKCIE PRE PORADCU NIŽŠIE
 
