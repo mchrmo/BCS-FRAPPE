@@ -4,19 +4,15 @@ from frappe.model.document import Document
 
 class Klient(Document):
     def after_insert(self):
-        # Pri vytvorení automaticky odošleme mail
         self.send_welcome_email()
 
-    @frappe.whitelist() # Whitelist umožní volanie metódy z frontendu (tlačidlom)
+    @frappe.whitelist()
     def send_welcome_email(self):
         email = self.email
         if not email or not self.heslo:
             frappe.msgprint("Klient nemá vyplnený email alebo heslo.")
             return
-
-        # HTML-safe verzia hesla
         password_safe = html.escape(self.heslo or "")
-
         subject = "Vaše prihlasovacie údaje"
         message = f"""
         Dobrý deň {self.username or 'používateľ'},<br><br>
@@ -27,10 +23,64 @@ class Klient(Document):
         S pozdravom,<br>
         Váš tím
         """
-
         frappe.sendmail(
             recipients=email,
             subject=subject,
             message=message,
-            now=True # Odošle mail hneď, nečaká na scheduler
+            now=True
         )
+
+    @frappe.whitelist()
+    def send_password_reset_email(self):
+        from bcservices.api.utils import clerk_api
+
+        email = self.email
+        if not email:
+            frappe.msgprint("Klient nemá vyplnený email.")
+            return
+        if not self.clerk_id:
+            frappe.msgprint("Klient nemá priradené Clerk ID.")
+            return
+
+        try:
+            res = clerk_api(
+                f"/v1/users/{self.clerk_id}/reset_password",
+                method="POST",
+                json_body={"redirect_url": "https://your-app.com/reset-password"}
+            )
+            frappe.log_error(f"Clerk reset response: {res}", "BC Clerk Sync")
+            reset_link = res.get("reset_link") or res.get("url")
+        except Exception as e:
+            frappe.log_error(f"Clerk reset password failed: {e}", "BC Clerk Sync")
+            frappe.msgprint(f"Nepodarilo sa vygenerovať reset link: {e}")
+            return
+
+        if not reset_link:
+            frappe.msgprint("Clerk nevrátil reset link.")
+            return
+
+        subject = "Reset hesla"
+        message = f"""
+        Dobrý deň {self.username or 'používateľ'},<br><br>
+        dostali sme žiadosť o reset vášho hesla.<br><br>
+        Kliknite na odkaz nižšie pre nastavenie nového hesla:<br><br>
+        <a href="{reset_link}" style="
+            background-color: #4CAF50;
+            color: white;
+            padding: 12px 24px;
+            text-decoration: none;
+            border-radius: 6px;
+            display: inline-block;
+        ">🔐 Nastaviť nové heslo</a><br><br>
+        Odkaz je platný 24 hodín.<br><br>
+        Ak ste o reset hesla nežiadali, ignorujte tento email.<br><br>
+        S pozdravom,<br>
+        Váš tím
+        """
+        frappe.sendmail(
+            recipients=email,
+            subject=subject,
+            message=message,
+            now=True
+        )
+        frappe.msgprint(f"✅ Reset email bol odoslaný na {email}")
