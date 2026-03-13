@@ -43,13 +43,24 @@ class Klient(Document):
             return
 
         try:
-            res = clerk_api(
-                f"/v1/users/{self.clerk_id}/reset_password",
-                method="POST",
-                json_body={"redirect_url": "https://your-app.com/reset-password"}
-            )
-            frappe.log_error(f"Clerk reset response: {res}", "BC Clerk Sync")
-            reset_link = res.get("reset_link") or res.get("url")
+    # Correct Clerk endpoint for password reset link
+    res = clerk_api(
+        f"/v1/users/{self.clerk_id}",
+        method="GET",
+    )
+    frappe.log_error(f"Clerk user: {res}", "BC Clerk Sync")
+    
+    # Generate magic link instead
+    res = clerk_api(
+        "/v1/sign_in_tokens",
+        method="POST",
+        json_body={
+            "user_id": self.clerk_id,
+            "expires_in_seconds": 86400  # 24 hours
+        }
+    )
+    frappe.log_error(f"Clerk reset response: {res}", "BC Clerk Sync")
+    reset_link = res.get("url") or res.get("token")
         except Exception as e:
             frappe.log_error(f"Clerk reset password failed: {e}", "BC Clerk Sync")
             frappe.msgprint(f"Nepodarilo sa vygenerovať reset link: {e}")
