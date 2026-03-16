@@ -200,9 +200,16 @@ def _create_clerk_user(email: str, password: str | None, preferred_username: str
     frappe.throw("Failed to create Clerk user", frappe.ValidationError)
 
 def _patch_clerk_user(clerk_id: str, email: str | None, password: str | None, new_username: str | None = None, role: str = "client") -> None:
-    # Email requires two-step process in Clerk
     if email:
         try:
+            # Get current user to find old email address IDs
+            user_data = clerk_api(f"/v1/users/{clerk_id}")
+            old_email_ids = [
+                e["id"] for e in user_data.get("email_addresses", [])
+                if e["email_address"] != email
+            ]
+
+            # Add new email and set as primary
             resp = clerk_api(
                 "/v1/email_addresses",
                 method="POST",
@@ -220,6 +227,14 @@ def _patch_clerk_user(clerk_id: str, email: str | None, password: str | None, ne
                     method="PATCH",
                     json_body={"primary_email_address_id": email_id}
                 )
+
+            # Delete old email addresses
+            for old_id in old_email_ids:
+                try:
+                    clerk_api(f"/v1/email_addresses/{old_id}", method="DELETE")
+                except Exception as e:
+                    frappe.log_error(f"Clerk old email delete failed {old_id}: {e}", "BC Clerk Sync")
+
         except Exception as e:
             frappe.log_error(f"Clerk email update failed for {clerk_id}: {e}", "BC Clerk Sync")
 
