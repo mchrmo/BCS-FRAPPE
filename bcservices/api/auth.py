@@ -199,7 +199,7 @@ def _create_clerk_user(email: str, password: str | None, preferred_username: str
 
     frappe.throw("Failed to create Clerk user", frappe.ValidationError)
 
-def _patch_clerk_user(clerk_id: str, email: str | None, password: str | None, new_username: str | None = None) -> None:
+def _patch_clerk_user(clerk_id: str, email: str | None, password: str | None, new_username: str | None = None, role: str = "client") -> None:
     # Email requires two-step process in Clerk
     if email:
         try:
@@ -224,7 +224,7 @@ def _patch_clerk_user(clerk_id: str, email: str | None, password: str | None, ne
             frappe.log_error(f"Clerk email update failed for {clerk_id}: {e}", "BC Clerk Sync")
 
     # Password and username
-    patch = {"public_metadata": {"role": "client"}}
+    patch = {"public_metadata": {"role": role}}
     if password:
         patch["password"] = password
     if new_username:
@@ -237,7 +237,6 @@ def _patch_clerk_user(clerk_id: str, email: str | None, password: str | None, ne
             frappe.log_error(f"Clerk username update failed: {e}", "BC Clerk Sync")
         else:
             raise
-
 
 # -----------------------------------------------------------------------------
 # HOOKS – used internally by Klient DocType
@@ -299,22 +298,19 @@ def after_insert_bc_poradca(doc, method=None):
 def on_update_bc_poradca(doc, method=None):
     if not doc.clerk_id:
         return
-
     try:
-        patch = {
-            "public_metadata": {"role": "admin"},
-            "email_address": [doc.email],
-        }
+        # Only pass email if it actually changed
+        email = doc.email if doc.has_value_changed("email") else None
+        password = doc.heslo if doc.has_value_changed("heslo") else None
+        username = doc.meno if doc.has_value_changed("meno") else None
 
-        if doc.heslo:
-            patch["password"] = doc.heslo
-
-        clerk_api(
-            f"/v1/users/{doc.clerk_id}",
-            method="PATCH",
-            json_body=patch
+        _patch_clerk_user(
+            clerk_id=doc.clerk_id,
+            email=email,
+            password=password,
+            new_username=username,
+            role="admin",
         )
-
     except Exception as e:
         frappe.log_error(f"Clerk update poradca failed: {e}", "BC Clerk Sync")
 
