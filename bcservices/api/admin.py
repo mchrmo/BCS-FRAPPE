@@ -20,13 +20,37 @@ def _require_admin():
 # -----------------------------------------------------------------------------
 @frappe.whitelist(methods=["GET"], allow_guest=True)
 def list_clients():
-    _require_admin()
-
+    clerk_id = _require_authenticated_user_and_get_clerk_id()
+    
+    # Nájdi Poradca podľa clerk_id
+    poradca = frappe.get_all(
+        "Poradca",
+        filters={"clerk_id": clerk_id},
+        fields=["name"],
+        limit_page_length=1
+    )
+    if not poradca:
+        return {"success": True, "clients": []}
+    
+    poradca_name = poradca[0]["name"]
+    
+    # Nájdi klientov kde je tento poradca priradený
+    linked = frappe.get_all(
+        "Poradca Klienta",
+        filters={"poradca_link": poradca_name, "parenttype": "Klient"},
+        fields=["parent"]
+    )
+    
+    klient_names = [r["parent"] for r in linked]
+    if not klient_names:
+        return {"success": True, "clients": []}
+    
     users = frappe.get_all(
         "Klient",
+        filters={"name": ["in", klient_names]},
         fields=["name", "clerk_id", "email"]
     )
-
+    
     out = []
     for u in users:
         devices = frappe.get_all(
@@ -34,13 +58,11 @@ def list_clients():
             filters={"parent": u["name"]},
             fields=["voip_token", "apns_token", "modified"]
         )
-
         tokens = frappe.get_all(
             "Token",
             filters={"aktualny_drzitel": u["name"]},
             fields=["minuty_ostavajuce", "stav"]
         )
-
         username = None
         try:
             cu = clerk_api(f"/v1/users/{u['clerk_id']}")
@@ -52,14 +74,13 @@ def list_clients():
             )
         except Exception:
             pass
-
         out.append({
             **u,
             "devices": devices,
             "tokens": tokens,
             "username": username
         })
-
+    
     return {"success": True, "clients": out}
 
 
