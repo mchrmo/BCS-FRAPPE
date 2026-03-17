@@ -1,6 +1,7 @@
 import frappe
 from frappe.utils import now_datetime
 from .utils import verify_clerk_bearer_and_get_sub, clerk_api
+from bcservices.api.me import _require_authenticated_user_and_get_clerk_id
 
 
 # -----------------------------------------------------------------------------
