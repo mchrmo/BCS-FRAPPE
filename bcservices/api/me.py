@@ -37,7 +37,7 @@ def _require_authenticated_user_and_get_clerk_id() -> str:
 
     return clerk_id
 
-@frappe.whitelist(methods=["GET"])  # ← added )
+@frappe.whitelist(allow_guest=False, methods=["GET"])  # ← added )
 def me():
     # 1) Auth + clerk_id
     clerk_id = _require_authenticated_user_and_get_clerk_id()
