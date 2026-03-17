@@ -390,13 +390,19 @@ def on_update_bc_pouzivatel(doc, method=None):
         return
 
     try:
-        pw = doc.heslo   # <-- FIX
+        pw = doc.heslo if doc.has_value_changed("heslo") else None
+        email = doc.email if doc.has_value_changed("email") else None
+        username = getattr(doc, "username", None) if doc.has_value_changed("username") else None
+
+        # Ak sa nič nezmenilo, nevolaj Clerk API
+        if not pw and not email and not username:
+            return
 
         _patch_clerk_user(
             clerk_id=doc.clerk_id,
-            email=getattr(doc, "email", None),
+            email=email,
             password=pw,
-            new_username=getattr(doc, "username", None),
+            new_username=username,
         )
     except Exception as e:
         frappe.log_error(f"Clerk update failed: {e}", "BC Clerk Sync")
