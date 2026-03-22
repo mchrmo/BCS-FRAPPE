@@ -64,17 +64,7 @@ def list_clients():
             filters={"aktualny_drzitel": u["name"]},
             fields=["minuty_ostavajuce", "stav"]
         )
-        username = None
-        try:
-            cu = clerk_api(f"/v1/users/{u['clerk_id']}")
-            username = (
-                cu.get("username")
-                or cu.get("first_name")
-                or (cu.get("email_addresses")[0]["email_address"]
-                    if cu.get("email_addresses") else None)
-            )
-        except Exception:
-            pass
+        username = frappe.db.get_value("Klient", u["name"], "username") or u.get("email")
         out.append({
             **u,
             "devices": devices,
