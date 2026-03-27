@@ -31,7 +31,62 @@ def test_log():
     return "OK, check error log"
 
 # ----------------------------------------------------------------------
-# START CALL (Obojstranný)
+# ✅ NOVÁ FUNKCIA: Kontrola tokenov v piatok
+# ----------------------------------------------------------------------
+def check_friday_tokens(klient_name):
+    """
+    Kontroluje, či je piatok a či má klient dostatok tokenov.
+    Returns: (bool, str) - (can_call, error_message)
+    """
+    # 1. Skontroluj, či je piatok
+    today = datetime.now()
+    is_friday = today.weekday() == 4  # Python: 0=Monday, 4=Friday
+    
+    if not is_friday:
+        # Nie je piatok, môže volať
+        return True, None
+    
+    # 2. Je piatok, skontroluj tokeny
+    try:
+        # Získaj Klienta (môže byť link alebo meno)
+        klient_doc = frappe.get_doc("Klient", klient_name)
+        
+        # Získaj clerk_id klienta
+        clerk_id = klient_doc.clerk_id
+        
+        if not clerk_id:
+            frappe.log_error(f"Klient {klient_name} nemá clerk_id", "BC Friday Token Check")
+            return False, "Client configuration error"
+        
+        # 3. Zavolaj balance API (alebo priamo query DB)
+        # Môžeme použiť existujúci endpoint alebo priamo query
+        
+        # Verzia 1: Query priamo z DB (rýchlejšie)
+        tokens = frappe.get_all(
+            "Token",
+            filters={
+                "klient": klient_name,
+                "status": "Active"  # Len aktívne tokeny
+            },
+            fields=["name", "minutes_remaining"]
+        )
+        
+        total_minutes = sum(t.get("minutes_remaining", 0) for t in tokens)
+        
+        frappe.logger().info(f"🔍 Friday token check for {klient_name}: {total_minutes} minutes")
+        
+        if total_minutes <= 0:
+            return False, "V piatok potrebujete aspoň 1 token na volanie."
+        
+        return True, None
+        
+    except Exception as e:
+        frappe.log_error(f"Error checking Friday tokens: {str(e)}", "BC Friday Token Check")
+        # V prípade chyby povoľ hovor (fail-open), ale logne chybu
+        return True, None
+
+# ----------------------------------------------------------------------
+# START CALL (Obojstranný) - ✅ S KONTROLOU TOKENOV
 # ----------------------------------------------------------------------
 @frappe.whitelist(methods=["POST"], allow_guest=True)
 def start():
@@ -58,6 +113,17 @@ def start():
 
         if not real_klient or not real_poradca:
             return {"success": False, "error": "Participants not found"}
+
+        # ✅ 2.5 NOVÁ KONTROLA: Piatok + Tokeny
+        can_call, error_msg = check_friday_tokens(real_klient)
+        if not can_call:
+            frappe.logger().warning(f"❌ Friday token check failed for {real_klient}: {error_msg}")
+            return {
+                "success": False,
+                "error": "insufficient_tokens_friday",
+                "message": error_msg or "V piatok potrebujete tokeny na volanie.",
+                "errorCode": "FRIDAY_NO_TOKENS"
+            }
 
         # 3. Určenie smeru hovoru (Kto volal)
         kto_volal = "Klient" if p1_klient else "Poradca"
@@ -114,6 +180,7 @@ def start():
                 if send_voip_push(token, payload):
                     sent_count += 1
 
+        frappe.logger().info(f"✅ Call started successfully: {call_doc.name}")
         return {"success": True, "callId": call_doc.name, "sent_to": sent_count}
 
     except Exception:
