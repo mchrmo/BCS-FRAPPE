@@ -490,6 +490,10 @@ def get_my_advisors():
     }
 
 def on_update_bc_pouzivatel(doc, method=None):
+    # Sync VŽDY, bez ohľadu na to či sa zmenili iné polia
+    if not doc.flags.get("in_sync"):
+        _sync_connections(doc)
+
     if not getattr(doc, "clerk_id", None):
         return
 
@@ -509,10 +513,6 @@ def on_update_bc_pouzivatel(doc, method=None):
         )
     except Exception as e:
         frappe.log_error(f"Clerk update failed: {e}", "BC Clerk Sync")
-
-    # Sync obojsmerného prepojenia
-    if not doc.flags.get("in_sync"):
-        _sync_connections(doc)
 
 def on_trash_bc_pouzivatel(doc, method=None):
     clerk_id = getattr(doc, "clerk_id", None)
