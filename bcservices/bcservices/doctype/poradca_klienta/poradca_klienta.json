@@ -7,40 +7,32 @@
  "engine": "InnoDB",
  "field_order": [
   "typ_uzivatela",
-  "poradca_link",
-  "klient_link"
+  "uzivatel_link"
  ],
  "fields": [
   {
    "fieldname": "typ_uzivatela",
    "fieldtype": "Select",
-   "label": "Typ",
+   "label": "Typ používateľa",
    "options": "Poradca\nKlient",
    "default": "Poradca",
    "reqd": 1,
-   "in_list_view": 1
+   "in_list_view": 1,
+   "columns": 2
   },
   {
-   "fieldname": "poradca_link",
-   "fieldtype": "Link",
-   "label": "Poradca",
-   "options": "Poradca",
-   "depends_on": "eval:doc.typ_uzivatela=='Poradca'",
-   "mandatory_depends_on": "eval:doc.typ_uzivatela=='Poradca'",
-   "in_list_view": 1
-  },
-  {
-   "fieldname": "klient_link",
-   "fieldtype": "Link",
-   "label": "Klient",
-   "options": "Klient",
-   "depends_on": "eval:doc.typ_uzivatela=='Klient'",
-   "mandatory_depends_on": "eval:doc.typ_uzivatela=='Klient'",
-   "in_list_view": 1
+   "fieldname": "uzivatel_link",
+   "fieldtype": "Dynamic Link",
+   "label": "Používateľ",
+   "options": "typ_uzivatela",
+   "reqd": 1,
+   "in_list_view": 1,
+   "columns": 5
   }
  ],
  "istable": 1,
- "modified": "2026-04-02 19:45:00.000000",
+ "links": [],
+ "modified": "2026-04-02 20:10:00.000000",
  "modified_by": "Administrator",
  "module": "BCServices",
  "name": "Poradca Klienta",
