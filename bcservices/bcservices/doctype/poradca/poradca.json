@@ -10,6 +10,7 @@
   "heslo",
   "clerk_id",
   "zariadenie",
+  "poradcovia",
   "google_calendar_section",
   "google_calendar_id",
   "google_json_file"
@@ -42,6 +43,12 @@
    "options": "Zariadenie"
   },
   {
+   "fieldname": "poradcovia",
+   "fieldtype": "Table",
+   "label": "Moji poradcovia a klienti",
+   "options": "Poradca Klienta"
+  },
+  {
    "fieldname": "google_calendar_section",
    "fieldtype": "Section Break",
    "label": "Google Calendar"
@@ -60,7 +67,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-02-03 09:00:00.000000",
+ "modified": "2026-04-02 19:50:00.000000",
  "modified_by": "Administrator",
  "module": "BCServices",
  "name": "Poradca",
