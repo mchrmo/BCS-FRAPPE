@@ -22,7 +22,7 @@
    "fieldtype": "Link",
    "label": "Klient",
    "options": "Klient",
-   "reqd": 1
+   "reqd": 0
   },
   {
    "fieldname": "poradca",
