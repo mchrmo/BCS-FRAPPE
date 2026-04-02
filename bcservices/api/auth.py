@@ -330,6 +330,66 @@ def on_update_bc_poradca(doc, method=None):
         frappe.log_error(f"Clerk update poradca failed: {e}", "BC Clerk Sync")
 
 
+@frappe.whitelist(methods=["POST", "GET"], allow_guest=True)
+def get_my_connected_users():
+    """
+    Vráti zoznam pripojených používateľov (klientov + poradcov) pre prihláseného poradcu.
+    iOS volá: /api/method/bcservices.api.admin.get_my_connected_users
+    """
+    try:
+        clerk_id, _ = verify_clerk_bearer_and_get_sub()
+    except Exception as e:
+        frappe.throw(f"Neautorizovaný prístup: {e}", frappe.PermissionError)
+
+    # Zistíme, či je to poradca
+    poradca_name = frappe.db.get_value("Poradca", {"clerk_id": clerk_id}, "name")
+    
+    if not poradca_name:
+        return {
+            "success": False,
+            "error": "V systéme neexistuje poradca s týmto Clerk ID."
+        }
+
+    doc = frappe.get_doc("Poradca", poradca_name)
+    
+    users_list = []
+    
+    # Iterujeme cez pripojených používateľov (Dynamic Link)
+    for row in doc.get("poradcovia") or []:
+        if not row.uzivatel_link or not row.typ_uzivatela:
+            continue
+            
+        try:
+            # Dynamic Link automaticky vie, aký typ to je
+            user_doc = frappe.get_doc(row.typ_uzivatela, row.uzivatel_link)
+            
+            # Získame zariadenia
+            devices = user_doc.get("zariadenie") or []
+            has_voip = any(d.voip_token for d in devices)
+            
+            # Podľa typu zistíme meno
+            if row.typ_uzivatela == "Poradca":
+                name = user_doc.meno
+                user_type = "advisor"
+            else:  # Klient
+                name = user_doc.username
+                user_type = "client"
+
+            users_list.append({
+                "name": name,
+                "clerk_id": user_doc.clerk_id,
+                "email": user_doc.email,
+                "has_voip": has_voip,
+                "type": user_type
+            })
+            
+        except frappe.DoesNotExistError:
+            continue
+
+    return {
+        "success": True,
+        "users": users_list
+    }
 
 @frappe.whitelist(methods=["POST", "GET"], allow_guest=True)
 def get_my_advisors():
@@ -353,13 +413,36 @@ def get_my_advisors():
     
     advisors_list = []
     
-    # Teraz podporujeme aj typ_uzivatela field
     for row in doc.get("poradcovia") or []:
-        try:
-            # Ak má starý záznam bez typ_uzivatela, predpokladáme Poradca
-            user_type = getattr(row, 'typ_uzivatela', 'Poradca')
-            
-            if user_type == "Poradca" and row.poradca_link:
+        # Podpora pre starý aj nový formát
+        if hasattr(row, 'uzivatel_link') and row.uzivatel_link:
+            # NOVÝ FORMÁT (Dynamic Link)
+            if not row.typ_uzivatela:
+                continue
+                
+            try:
+                user_doc = frappe.get_doc(row.typ_uzivatela, row.uzivatel_link)
+                
+                devices = user_doc.get("zariadenie") or []
+                has_voip = any(d.voip_token for d in devices)
+                
+                if row.typ_uzivatela == "Poradca":
+                    name = user_doc.meno
+                else:
+                    name = user_doc.username
+
+                advisors_list.append({
+                    "name": name,
+                    "clerk_id": user_doc.clerk_id,
+                    "email": user_doc.email,
+                    "has_voip": has_voip
+                })
+            except frappe.DoesNotExistError:
+                continue
+                
+        elif hasattr(row, 'poradca_link') and row.poradca_link:
+            # STARÝ FORMÁT (spätná kompatibilita)
+            try:
                 p = frappe.get_doc("Poradca", row.poradca_link)
                 
                 devices = p.get("zariadenie") or []
@@ -371,22 +454,8 @@ def get_my_advisors():
                     "email": p.email,
                     "has_voip": has_voip
                 })
-                
-            elif user_type == "Klient" and row.klient_link:
-                k = frappe.get_doc("Klient", row.klient_link)
-                
-                devices = k.get("zariadenie") or []
-                has_voip = any(d.voip_token for d in devices)
-
-                advisors_list.append({
-                    "name": k.username,
-                    "clerk_id": k.clerk_id,
-                    "email": k.email,
-                    "has_voip": has_voip
-                })
-                
-        except frappe.DoesNotExistError:
-            continue
+            except frappe.DoesNotExistError:
+                continue
 
     return {
         "success": True,
