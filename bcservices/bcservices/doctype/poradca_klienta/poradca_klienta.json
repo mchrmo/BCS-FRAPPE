@@ -6,21 +6,41 @@
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
-  "poradca_link"
+  "typ_uzivatela",
+  "poradca_link",
+  "klient_link"
  ],
  "fields": [
+  {
+   "fieldname": "typ_uzivatela",
+   "fieldtype": "Select",
+   "label": "Typ",
+   "options": "Poradca\nKlient",
+   "default": "Poradca",
+   "reqd": 1,
+   "in_list_view": 1
+  },
   {
    "fieldname": "poradca_link",
    "fieldtype": "Link",
    "label": "Poradca",
-   "options": "Poradca"
+   "options": "Poradca",
+   "depends_on": "eval:doc.typ_uzivatela=='Poradca'",
+   "mandatory_depends_on": "eval:doc.typ_uzivatela=='Poradca'",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "klient_link",
+   "fieldtype": "Link",
+   "label": "Klient",
+   "options": "Klient",
+   "depends_on": "eval:doc.typ_uzivatela=='Klient'",
+   "mandatory_depends_on": "eval:doc.typ_uzivatela=='Klient'",
+   "in_list_view": 1
   }
  ],
- "grid_page_length": 50,
- "index_web_pages_for_search": 1,
  "istable": 1,
- "links": [],
- "modified": "2026-01-25 16:36:42.115249",
+ "modified": "2026-04-02 19:45:00.000000",
  "modified_by": "Administrator",
  "module": "BCServices",
  "name": "Poradca Klienta",
