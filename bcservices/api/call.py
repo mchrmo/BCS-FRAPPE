@@ -93,7 +93,7 @@ def start():
     debug_id = frappe.generate_hash(length=4)
     log_tag = f"BC DEBUG [{debug_id}]"
     data = frappe.local.form_dict or {}
-    
+
     c1_id = data.get("callerId")
     c2_id = data.get("advisorId")
 
@@ -102,7 +102,7 @@ def start():
 
         p1_klient = frappe.db.get_value("Klient", {"clerk_id": c1_id}, "name")
         p1_poradca = frappe.db.get_value("Poradca", {"clerk_id": c1_id}, "name")
-        
+
         p2_klient = frappe.db.get_value("Klient", {"clerk_id": c2_id}, "name")
         p2_poradca = frappe.db.get_value("Poradca", {"clerk_id": c2_id}, "name")
 
@@ -142,6 +142,7 @@ def start():
             call_doc = frappe.get_doc({
                 "doctype": "Dennik hovorov",
                 "poradca": p1_poradca,
+                "poradca2": p2_poradca,
                 "kto_volal": "Poradca",
                 "zaciatok_datum": now.date(),
                 "zaciatok_cas": now.strftime("%H:%M:%S"),
