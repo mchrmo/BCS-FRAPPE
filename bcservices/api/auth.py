@@ -314,7 +314,6 @@ def on_update_bc_poradca(doc, method=None):
     if not doc.clerk_id:
         return
     try:
-        # Only pass email if it actually changed
         email = doc.email if doc.has_value_changed("email") else None
         password = doc.heslo if doc.has_value_changed("heslo") else None
         username = doc.meno if doc.has_value_changed("meno") else None
@@ -329,6 +328,34 @@ def on_update_bc_poradca(doc, method=None):
     except Exception as e:
         frappe.log_error(f"Clerk update poradca failed: {e}", "BC Clerk Sync")
 
+    # Sync obojsmerného prepojenia
+    if not doc.flags.get("in_sync"):
+        _sync_connections(doc)
+
+def _sync_connections(doc):
+    """Zabezpečí obojsmerné prepojenie medzi Poradca/Klient."""
+    for row in doc.get("poradcovia") or []:
+        if not row.uzivatel_link or not row.typ_uzivatela:
+            continue
+
+        try:
+            linked_doc = frappe.get_doc(row.typ_uzivatela, row.uzivatel_link)
+        except frappe.DoesNotExistError:
+            continue
+
+        already_linked = any(
+            r.uzivatel_link == doc.name and r.typ_uzivatela == doc.doctype
+            for r in (linked_doc.get("poradcovia") or [])
+        )
+
+        if not already_linked:
+            linked_doc.flags.in_sync = True  # zabraňuje rekurzii
+            linked_doc.flags.ignore_permissions = True
+            linked_doc.append("poradcovia", {
+                "typ_uzivatela": doc.doctype,
+                "uzivatel_link": doc.name
+            })
+            linked_doc.save()
 
 @frappe.whitelist(methods=["POST", "GET"], allow_guest=True)
 def get_my_connected_users():
@@ -471,7 +498,6 @@ def on_update_bc_pouzivatel(doc, method=None):
         email = doc.email if doc.has_value_changed("email") else None
         username = getattr(doc, "username", None) if doc.has_value_changed("username") else None
 
-        # Ak sa nič nezmenilo, nevolaj Clerk API
         if not pw and not email and not username:
             return
 
@@ -483,6 +509,10 @@ def on_update_bc_pouzivatel(doc, method=None):
         )
     except Exception as e:
         frappe.log_error(f"Clerk update failed: {e}", "BC Clerk Sync")
+
+    # Sync obojsmerného prepojenia
+    if not doc.flags.get("in_sync"):
+        _sync_connections(doc)
 
 def on_trash_bc_pouzivatel(doc, method=None):
     clerk_id = getattr(doc, "clerk_id", None)
