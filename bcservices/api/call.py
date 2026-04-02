@@ -98,10 +98,8 @@ def start():
     c2_id = data.get("advisorId")
 
     try:
-        # 1. Overenie kto drží telefón (autentifikovaný používateľ)
         auth_clerk_id, _ = verify_clerk_bearer_and_get_sub()
 
-        # 2. Identifikácia účastníkov v DB
         p1_klient = frappe.db.get_value("Klient", {"clerk_id": c1_id}, "name")
         p1_poradca = frappe.db.get_value("Poradca", {"clerk_id": c1_id}, "name")
         
@@ -111,24 +109,24 @@ def start():
         real_klient = p1_klient or p2_klient
         real_poradca = p1_poradca or p2_poradca
 
-        if not real_klient or not real_poradca:
+        is_poradca_to_poradca = bool(p1_poradca and p2_poradca)
+
+        if not is_poradca_to_poradca and (not real_klient or not real_poradca):
             return {"success": False, "error": "Participants not found"}
 
-        # ✅ 2.5 NOVÁ KONTROLA: Piatok + Tokeny
-        can_call, error_msg = check_friday_tokens(real_klient)
-        if not can_call:
-            frappe.logger().warning(f"❌ Friday token check failed for {real_klient}: {error_msg}")
-            return {
-                "success": False,
-                "error": "insufficient_tokens_friday",
-                "message": error_msg or "V piatok potrebujete tokeny na volanie.",
-                "errorCode": "FRIDAY_NO_TOKENS"
-            }
+        # Piatok token check — len pre hovory kde je klient
+        if real_klient:
+            can_call, error_msg = check_friday_tokens(real_klient)
+            if not can_call:
+                return {
+                    "success": False,
+                    "error": "insufficient_tokens_friday",
+                    "message": error_msg or "V piatok potrebujete tokeny na volanie.",
+                    "errorCode": "FRIDAY_NO_TOKENS"
+                }
 
-        # 3. Určenie smeru hovoru (Kto volal)
-        kto_volal = "Klient" if p1_klient else "Poradca"
+        kto_volal = "Poradca" if p1_poradca else "Klient"
 
-        # 4. Určenie cieľa pre PUSH (vždy ten druhý, kto nie je auth_clerk_id)
         if auth_clerk_id == c1_id:
             target_doctype = "Poradca" if p2_poradca else "Klient"
             target_id = p2_poradca or p2_klient
@@ -138,33 +136,38 @@ def start():
             target_id = p1_poradca or p1_klient
             display_name = p2_poradca or p2_klient
 
-        # 5. Zápis do Denníka hovorov
         now = now_datetime()
-        call_doc = frappe.get_doc({
-            "doctype": "Dennik hovorov",
-            "klient": real_klient,      # Link na Klienta
-            "poradca": real_poradca,    # Link na Poradcu
-            "kto_volal": kto_volal,     # "Klient" alebo "Poradca"
-            "zaciatok_datum": now.date(),
-            "zaciatok_cas": now.strftime("%H:%M:%S"),
-        })
-        call_doc.insert(ignore_permissions=True)
-        frappe.db.commit() # Commit aby sme mali ID pre Google
 
-        # --- GOOGLE CALENDAR START ---
+        if is_poradca_to_poradca:
+            call_doc = frappe.get_doc({
+                "doctype": "Dennik hovorov",
+                "poradca": p1_poradca,
+                "kto_volal": "Poradca",
+                "zaciatok_datum": now.date(),
+                "zaciatok_cas": now.strftime("%H:%M:%S"),
+            })
+        else:
+            call_doc = frappe.get_doc({
+                "doctype": "Dennik hovorov",
+                "klient": real_klient,
+                "poradca": real_poradca,
+                "kto_volal": kto_volal,
+                "zaciatok_datum": now.date(),
+                "zaciatok_cas": now.strftime("%H:%M:%S"),
+            })
+
+        call_doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+
         if create_call_event:
             try:
-                # Do kalendára pošleme meno klienta ako "titul"
-                event_id = create_call_event(call_doc, display_title=real_klient)
-                
+                display_title = real_klient if real_klient else f"{p1_poradca} ↔ {p2_poradca}"
+                event_id = create_call_event(call_doc, display_title=display_title)
                 if event_id:
-                    # Uložíme ID udalosti späť do hovoru (bez spustenia validácií pre rýchlosť)
                     call_doc.db_set("google_event_id", event_id)
             except Exception as e:
                 frappe.log_error(f"Failed to create Google Event: {e}", log_tag)
-        # -----------------------------
 
-        # 6. Odoslanie PUSH
         target_doc = frappe.get_doc(target_doctype, target_id)
         devices = target_doc.get("zariadenie") or []
         sent_count = 0
@@ -180,13 +183,12 @@ def start():
                 if send_voip_push(token, payload):
                     sent_count += 1
 
-        frappe.logger().info(f"✅ Call started successfully: {call_doc.name}")
+        frappe.logger().info(f"✅ Call started: {call_doc.name}, sent_to: {sent_count}")
         return {"success": True, "callId": call_doc.name, "sent_to": sent_count}
 
     except Exception:
         frappe.log_error(traceback.format_exc(), log_tag)
         return {"success": False, "error": "Internal server error"}
-
 # ----------------------------------------------------------------------
 # ACCEPT CALL
 # ----------------------------------------------------------------------
