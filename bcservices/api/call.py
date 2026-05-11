@@ -38,52 +38,83 @@ def check_friday_tokens(klient_name):
     Kontroluje, či je piatok a či má klient dostatok tokenov.
     Returns: (bool, str) - (can_call, error_message)
     """
-    # 1. Skontroluj, či je piatok
-    today = datetime.now()
-    is_friday = today.weekday() == 4  # Python: 0=Monday, 4=Friday
-    
-    if not is_friday:
-        # Nie je piatok, môže volať
+    today = now_datetime()  # ✅ rešpektuje system_settings timezone
+    if today.weekday() != 4:
         return True, None
-    
-    # 2. Je piatok, skontroluj tokeny
+
     try:
-        # Získaj Klienta (môže byť link alebo meno)
-        klient_doc = frappe.get_doc("Klient", klient_name)
-        
-        # Získaj clerk_id klienta
-        clerk_id = klient_doc.clerk_id
-        
-        if not clerk_id:
-            frappe.log_error(f"Klient {klient_name} nemá clerk_id", "BC Friday Token Check")
-            return False, "Client configuration error"
-        
-        # 3. Zavolaj balance API (alebo priamo query DB)
-        # Môžeme použiť existujúci endpoint alebo priamo query
-        
-        # Verzia 1: Query priamo z DB (rýchlejšie)
         tokens = frappe.get_all(
             "Token",
             filters={
-                "klient": klient_name,
-                "status": "Active"  # Len aktívne tokeny
+                "aktualny_drzitel": klient_name,
+                "stav": "active"
             },
-            fields=["name", "minutes_remaining"]
+            fields=["name", "minuty_ostavajuce"]
         )
-        
-        total_minutes = sum(t.get("minutes_remaining", 0) for t in tokens)
-        
-        frappe.logger().info(f"🔍 Friday token check for {klient_name}: {total_minutes} minutes")
-        
+
+        total_minutes = sum(t.get("minuty_ostavajuce", 0) for t in tokens)
+        frappe.logger().info(f"🔍 Friday token check for {klient_name}: {total_minutes} min")
+
         if total_minutes <= 0:
             return False, "V piatok potrebujete aspoň 1 token na volanie."
-        
+
         return True, None
-        
-    except Exception as e:
-        frappe.log_error(f"Error checking Friday tokens: {str(e)}", "BC Friday Token Check")
-        # V prípade chyby povoľ hovor (fail-open), ale logne chybu
-        return True, None
+
+    except Exception:
+        frappe.log_error(traceback.format_exc(), "BC Friday Token Check")
+        return False, "Chyba pri overení tokenov."  # 🔥 fail-CLOSED — bezpečnejšie
+
+def consume_tokens_after_call(klient_name, seconds_used, call_doc):
+    """Odpočíta minúty z tokenov FIFO (najstarší token najprv). Round up na celé minúty."""
+    minutes_used = math.ceil(seconds_used / 60)
+    if minutes_used <= 0:
+        return
+
+    tokens = frappe.get_all(
+        "Token",
+        filters={
+            "aktualny_drzitel": klient_name,
+            "stav": "active"
+        },
+        fields=["name", "minuty_ostavajuce"],
+        order_by="creation asc"  # FIFO — najstarší token najprv
+    )
+
+    remaining = minutes_used
+    first_consumed_token = None
+
+    for t in tokens:
+        if remaining <= 0:
+            break
+
+        token_doc = frappe.get_doc("Token", t.name)
+        if (token_doc.minuty_ostavajuce or 0) <= 0:
+            continue
+
+        if not first_consumed_token:
+            first_consumed_token = token_doc.name
+
+        if token_doc.minuty_ostavajuce >= remaining:
+            token_doc.minuty_ostavajuce -= remaining
+            remaining = 0
+            if token_doc.minuty_ostavajuce == 0:
+                token_doc.stav = "spent"
+        else:
+            remaining -= token_doc.minuty_ostavajuce
+            token_doc.minuty_ostavajuce = 0
+            token_doc.stav = "spent"
+
+        token_doc.save(ignore_permissions=True)
+
+    # Link prvý použitý token do Dennik hovorov
+    if first_consumed_token:
+        call_doc.db_set("pouzity_token", first_consumed_token)
+
+    frappe.db.commit()
+    frappe.logger().info(
+        f"💰 Consumed {minutes_used}min from {klient_name}'s tokens "
+        f"(remaining unfulfilled: {remaining}min)"
+    )
 
 # ----------------------------------------------------------------------
 # START CALL (Obojstranný) - ✅ S KONTROLOU TOKENOV
@@ -230,6 +261,9 @@ def accept():
 # ----------------------------------------------------------------------
 # END CALL
 # ----------------------------------------------------------------------
+# ----------------------------------------------------------------------
+# END CALL
+# ----------------------------------------------------------------------
 @frappe.whitelist(methods=["POST"], allow_guest=True)
 def end():
     try:
@@ -247,8 +281,9 @@ def end():
         # Nastavíme koniec
         doc.koniec_datum = now.date()
         doc.koniec_cas = now.strftime("%H:%M:%S")
-        
+
         # Vypočítame trvanie
+        duration = 0
         try:
             start_dt = datetime.combine(getdate(doc.zaciatok_datum), get_time(doc.zaciatok_cas))
             duration = max(0, int((now - start_dt).total_seconds()))
@@ -260,17 +295,26 @@ def end():
         doc.save(ignore_permissions=True)
         frappe.db.commit()
 
+        # 🔥 Čerpanie tokenov ak bol piatok (podľa zaciatok_datum)
+        try:
+            if doc.klient and duration > 0:
+                start_dt = datetime.combine(getdate(doc.zaciatok_datum), get_time(doc.zaciatok_cas))
+                was_friday = start_dt.weekday() == 4
+                if was_friday:
+                    consume_tokens_after_call(doc.klient, duration, doc)
+        except Exception:
+            frappe.log_error(traceback.format_exc(), "BC Token Consume Error")
+
         # --- GOOGLE CALENDAR UPDATE ---
         if update_call_event_end:
             try:
-                # Reload, aby sme mali istotu, že máme čerstvé dáta
                 doc.reload()
                 update_call_event_end(doc, display_title=doc.klient)
             except Exception as e:
                 frappe.log_error(f"Failed to update Google Event: {e}", "BC End Error")
-        # ------------------------------
 
         return {"success": True}
+
     except Exception as e:
         frappe.log_error(traceback.format_exc(), "BC End Error")
         return {"success": False}
