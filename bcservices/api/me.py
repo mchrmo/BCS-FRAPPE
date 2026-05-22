@@ -37,29 +37,52 @@ def _require_authenticated_user_and_get_clerk_id() -> str:
 
     return clerk_id
 
+# bcservices/api/auth.py
+
 @frappe.whitelist(allow_guest=True, methods=["GET"])
 def me():
     # 1) Auth + clerk_id
     clerk_id = _require_authenticated_user_and_get_clerk_id()
 
-    # 2) Find Klient by clerk_id
+    # 2) Try to find Klient first
     klient = frappe.get_all(
         "Klient",
         filters={"clerk_id": clerk_id},
-        fields=["name", "clerk_id", "email", "username"],  # username is your full-name field
+        fields=["name", "clerk_id", "email", "username"],
         limit_page_length=1
     )
-    if not klient:
-        return {"success": False, "message": "Client not found"}
-
-    k = klient[0]
-    full_name = k.get("username") or k.get("name") or k.get("email")
-
-    return {
-        "success": True,
-        "client": {
-            "clerk_id": k.get("clerk_id"),
-            "email": k.get("email"),
-            "full_name": full_name
+    
+    if klient:
+        k = klient[0]
+        full_name = k.get("username") or k.get("name") or k.get("email")
+        return {
+            "success": True,
+            "client": {
+                "clerk_id": k.get("clerk_id"),
+                "email": k.get("email"),
+                "full_name": full_name
+            }
         }
-    }
+    
+    # 3) If not found, try Poradca (Advisor)
+    poradca = frappe.get_all(
+        "Poradca",
+        filters={"clerk_id": clerk_id},
+        fields=["name", "clerk_id", "email", "full_name"],  # adjust field names as needed
+        limit_page_length=1
+    )
+    
+    if poradca:
+        p = poradca[0]
+        full_name = p.get("full_name") or p.get("name") or p.get("email")
+        return {
+            "success": True,
+            "advisor": {
+                "clerk_id": p.get("clerk_id"),
+                "email": p.get("email"),
+                "full_name": full_name
+            }
+        }
+
+    # 4) Not found in either table
+    return {"success": False, "message": "User not found"}
