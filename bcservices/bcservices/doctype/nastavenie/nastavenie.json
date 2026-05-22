@@ -21,7 +21,8 @@
   "friday_base_price_eur",
   "friday_base_year",
   "max_primary_tokens_per_user",
-  "app_url"
+  "app_url",
+  "min_ios_version"
  ],
  "fields": [
   {
@@ -109,13 +110,19 @@
    "fieldname": "app_url",
    "fieldtype": "Data",
    "label": "App URL"
+  },
+  {
+   "fieldname": "min_ios_version",
+   "fieldtype": "Data",
+   "label": "Min iOS Version",
+   "description": "Minimalna verzia iOS appky (napr. 1.2.0). Starsi pouzivatelom sa zobrazi force update alert."
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-01-14 18:15:00.000000",
+ "modified": "2026-05-22 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "BCServices",
  "name": "Nastavenie",
