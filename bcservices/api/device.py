@@ -2,14 +2,14 @@
 
 import frappe
 from .utils import (
-    verify_clerk_bearer_and_get_sub,
-    get_actor_by_clerk_id,
+    verify_bearer_and_get_email,
+    get_actor_by_email,
     upsert_child_device_for_user
 )
 
 @frappe.whitelist(methods=["POST"], allow_guest=True)
 def register_device():
-    clerk_id, _ = verify_clerk_bearer_and_get_sub()
+    email, _ = verify_bearer_and_get_email()
     data = frappe.local.form_dict or {}
 
     voip_token = data.get("voip_token") or data.get("voipToken")
@@ -18,7 +18,7 @@ def register_device():
     if not voip_token and not apns_token:
         frappe.throw("Missing device token")
 
-    doctype, user_doc = get_actor_by_clerk_id(clerk_id)
+    doctype, user_doc = get_actor_by_email(email)
     if not user_doc:
         frappe.throw("Unknown user")
 

@@ -1,5 +1,5 @@
 import frappe
-from .utils import verify_clerk_bearer_and_get_sub
+from .utils import verify_bearer_and_get_email
 
 @frappe.whitelist(methods=["GET"], allow_guest=True)
 def listings():
@@ -37,9 +37,9 @@ def call_logs(userId: str = None):
         return {"success": False, "error": "Missing userId"}
 
     # 2. Zistíme meno používateľa (či je Klient alebo Poradca)
-    # Hľadáme v oboch tabuľkách podľa Clerk ID
-    bc_user = frappe.db.get_value("Klient", {"clerk_id": userId}, "name") or \
-              frappe.db.get_value("Poradca", {"clerk_id": userId}, "name")
+    # Hľadáme v oboch tabuľkách podľa emailu
+    bc_user = frappe.db.get_value("Klient", {"email": userId}, "name") or \
+              frappe.db.get_value("Poradca", {"email": userId}, "name")
 
     # Ak používateľ neexistuje v DB, vrátime prázdny zoznam (nie chybu)
     if not bc_user:
@@ -75,8 +75,8 @@ def history(userId: str = None):
     if not userId:
         return {"success": False, "error": "Missing userId"}
 
-    bc_user = frappe.db.get_value("Klient", {"clerk_id": userId}, "name")
-    
+    bc_user = frappe.db.get_value("Klient", {"email": userId}, "name")
+
     if not bc_user:
         return {"success": True, "items": []}
 
@@ -143,7 +143,7 @@ def cancel_listing():
 
 @frappe.whitelist(methods=["POST"], allow_guest=True)
 def list_token(sellerId: str = None, tokenId: str = None, priceEur: float = None):
-    clerk_id, payload = verify_clerk_bearer_and_get_sub()
+    email, payload = verify_bearer_and_get_email()
 
     sellerId = sellerId or frappe.form_dict.get("sellerId")
     tokenId = tokenId or frappe.form_dict.get("tokenId")
@@ -152,10 +152,10 @@ def list_token(sellerId: str = None, tokenId: str = None, priceEur: float = None
     if not sellerId or not tokenId or priceEur is None:
         frappe.throw("Missing parameters", frappe.ValidationError)
 
-    if sellerId != clerk_id:
+    if sellerId != email:
         frappe.throw("Forbidden", frappe.PermissionError)
 
-    bc_user = frappe.db.get_value("Klient", {"clerk_id": clerk_id}, "name")
+    bc_user = frappe.db.get_value("Klient", {"email": email}, "name")
 
     if not bc_user:
         frappe.throw("User not found", frappe.DoesNotExistError)

@@ -5,10 +5,8 @@
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
-  "clerk_issuer",
-  "clerk_secret_key",
-  "clerk_jwks_url",
-  "admin_clerk_id",
+  "jwt_secret",
+  "admin_email",
   "apn_team_id",
   "apn_key_id",
   "apn_bundle_id",
@@ -26,24 +24,15 @@
  ],
  "fields": [
   {
-   "fieldname": "clerk_issuer",
+   "fieldname": "jwt_secret",
    "fieldtype": "Data",
-   "label": "Clerk Issuer"
+   "label": "JWT Secret",
+   "description": "Tajny kluc na podpisovanie prihlasovacich tokenov. Vygeneruje sa automaticky pri prvom prihlaseni."
   },
   {
-   "fieldname": "clerk_secret_key",
+   "fieldname": "admin_email",
    "fieldtype": "Data",
-   "label": "Clerk Secret Key"
-  },
-  {
-   "fieldname": "clerk_jwks_url",
-   "fieldtype": "Data",
-   "label": "Clerk JWKS URL"
-  },
-  {
-   "fieldname": "admin_clerk_id",
-   "fieldtype": "Data",
-   "label": "Admin Clerk ID"
+   "label": "Admin Email"
   },
   {
    "fieldname": "apn_team_id",

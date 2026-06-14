@@ -1,10 +1,9 @@
 # apps/bcservices/bcservices/api/utils.py
 
 import time
+import secrets
 import frappe
 import jwt
-import requests
-from jwt import PyJWKClient
 from frappe.utils import cint
 import httpx
 
@@ -20,39 +19,34 @@ def get_settings():
         frappe.throw("Doctype 'Nastavenie' neexistuje", frappe.ValidationError)
 
 # ---------------------------------------------------
-# Clerk helpers
+# Frappe-native auth (HS256 JWT, identita = email)
 # ---------------------------------------------------
 
-def _clerk_issuer():
+def _jwt_secret():
+    """Tajny kluc na podpisovanie JWT. Ulozeny v Nastavenie, generuje sa pri prvom pouziti."""
     settings = get_settings()
-    if not settings.clerk_issuer:
-        frappe.throw("Clerk issuer is not configured", frappe.ValidationError)
-    return settings.clerk_issuer.rstrip("/")
+    val = getattr(settings, "jwt_secret", None)
+    if not val:
+        val = secrets.token_urlsafe(48)
+        frappe.db.set_value("Nastavenie", settings.name, "jwt_secret", val)
+        frappe.db.commit()
+    return val
 
 
-def _clerk_secret():
-    settings = get_settings()
-    if not settings.clerk_secret_key:
-        frappe.throw("Clerk secret key is not configured", frappe.ValidationError)
-    return settings.clerk_secret_key
+def make_jwt(email: str, role: str) -> str:
+    """Vytvori podpisany JWT bez expiracie (uzivatel ostava prihlaseny)."""
+    token = jwt.encode(
+        {"sub": email, "role": role, "iat": int(time.time())},
+        _jwt_secret(),
+        algorithm="HS256",
+    )
+    if isinstance(token, bytes):
+        token = token.decode()
+    return token
 
 
-def _jwks_client():
-    cache_key = "bc_jwks_url"
-    cached = frappe.cache().get_value(cache_key)
-
-    if cached:
-        return PyJWKClient(cached)
-
-    settings = get_settings()
-    url = settings.clerk_jwks_url or f"{_clerk_issuer()}/.well-known/jwks.json"
-
-    frappe.cache().set_value(cache_key, url, expires_in_sec=3600)
-    return PyJWKClient(url)
-
-
-def verify_clerk_bearer_and_get_sub():
-    """Validate Clerk JWT."""
+def verify_bearer_and_get_email():
+    """Overi nas HS256 JWT z auth headeru a vrati (email, payload)."""
     auth = (
         frappe.get_request_header("X-Clerk-Authorization")
         or frappe.get_request_header("x-clerk-authorization")
@@ -61,124 +55,15 @@ def verify_clerk_bearer_and_get_sub():
     )
 
     if not auth:
-        frappe.throw("Missing Clerk auth header", frappe.PermissionError)
+        frappe.throw("Missing auth header", frappe.PermissionError)
 
     token = auth.split(" ", 1)[1] if auth.startswith("Bearer ") else auth.strip()
 
     try:
-        signing_key = _jwks_client().get_signing_key_from_jwt(token)
-        payload = jwt.decode(
-            token,
-            signing_key.key,
-            algorithms=["RS256"],
-            issuer=_clerk_issuer(),
-            options={"verify_aud": False},
-        )
+        payload = jwt.decode(token, _jwt_secret(), algorithms=["HS256"])
         return payload.get("sub"), payload
-
     except Exception as e:
-        frappe.throw(f"Invalid Clerk token: {e}", frappe.PermissionError)
-
-# ---------------------------------------------------
-# Clerk Management API (server → server)
-# ---------------------------------------------------
-
-def clerk_api(path, method="GET", json_body=None):
-    base = "https://api.clerk.com"   # <-- TOTO JE JEDINÉ SPRÁVNE
-    url = f"{base}{path}"
-
-    headers = {
-        "Authorization": f"Bearer {_clerk_secret()}",
-        "Content-Type": "application/json"
-    }
-
-    resp = requests.request(method, url, headers=headers, json=json_body, timeout=30)
-
-    if not resp.ok:
-        try: detail = resp.json()
-        except: detail = resp.text
-        frappe.throw(f"Clerk API error {resp.status_code}: {detail}", frappe.ValidationError)
-
-    return resp.json()
-
-
-# ---------------------------------------------------
-# User helpers
-# ---------------------------------------------------
-
-def ensure_bc_user_by_clerk(clerk_id: str, email: str | None = None):
-    """Upsert Klient by clerk_id – s automatickou detekciou správneho fieldname pre 'Meno'."""
-
-    # --- 1) Stiahni údaje z Clerk (username/email) ---
-    clerk_user = None
-    try:
-        clerk_user = clerk_api(f"/v1/users/{clerk_id}")
-    except Exception:
-        clerk_user = None
-
-    if not email and clerk_user:
-        try:
-            primary_id = clerk_user.get("primary_email_address_id")
-            if primary_id:
-                for e in clerk_user.get("email_addresses", []):
-                    if e.get("id") == primary_id:
-                        email = e.get("email_address")
-                        break
-        except Exception:
-            pass
-
-    username = None
-    if clerk_user:
-        username = clerk_user.get("username")
-
-    full_name = username or email or clerk_id
-
-    # --- 2) Nájdeme správny fieldname pre label "Meno" ---
-    meta = frappe.get_meta("Klient")
-
-    name_field = None
-    for f in meta.fields:
-        if f.label and f.label.strip().lower() == "meno":
-            name_field = f.fieldname
-            break
-
-    # fallback ak by zlyhalo
-    if not name_field:
-        name_field = "username"
-
-    # --- 3) Hľadaj existujúceho klienta ---
-    name = frappe.db.get_value("Klient", {"clerk_id": clerk_id}, "name")
-
-    if name:
-        doc = frappe.get_doc("Klient", name)
-
-        changed = False
-
-        if email and not getattr(doc, "email", None):
-            doc.email = email
-            changed = True
-
-        if not getattr(doc, name_field, None):
-            setattr(doc, name_field, full_name)
-            changed = True
-
-        if changed:
-            doc.save(ignore_permissions=True)
-
-        return doc
-
-    # --- 4) Vytvor nového klienta ---
-    doc_dict = {
-        "doctype": "Klient",
-        "clerk_id": clerk_id,
-        "email": email,
-        name_field: full_name,
-    }
-
-    doc = frappe.get_doc(doc_dict)
-    doc.insert(ignore_permissions=True)
-
-    return doc
+        frappe.throw(f"Invalid token: {e}", frappe.PermissionError)
 
 
 # ---------------------------------------------------
@@ -258,15 +143,15 @@ def send_voip_push(device_token: str, payload: dict):
 
     return {"apns_id": resp.headers.get("apns-id")}
 
-def get_actor_by_clerk_id(clerk_id: str):
+def get_actor_by_email(email: str):
     """
-    Vráti tuple: (doctype, doc)
+    Vráti tuple: (doctype, doc) podľa emailu.
     """
-    poradca = frappe.db.get_value("Poradca", {"clerk_id": clerk_id}, "name")
+    poradca = frappe.db.get_value("Poradca", {"email": email}, "name")
     if poradca:
         return "Poradca", frappe.get_doc("Poradca", poradca)
 
-    klient = frappe.db.get_value("Klient", {"clerk_id": clerk_id}, "name")
+    klient = frappe.db.get_value("Klient", {"email": email}, "name")
     if klient:
         return "Klient", frappe.get_doc("Klient", klient)
 
