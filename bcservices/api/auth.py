@@ -7,20 +7,7 @@ from .utils import (
     verify_bearer_and_get_email,
     get_actor_by_email,
     make_jwt,
-    get_settings,
 )
-
-
-@frappe.whitelist(methods=["GET"], allow_guest=True)
-def get_settings_public():
-    """
-    iOS volá: /api/method/bcservices.api.auth.get_settings_public
-    Vráti email administrátora, aby klient vedel komu písať čet.
-    """
-    settings = get_settings()
-    return {
-        "admin_email": settings.admin_email
-    }
 
 
 # -----------------------------------------------------------------------------
