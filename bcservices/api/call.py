@@ -7,7 +7,7 @@ from frappe import _
 
 # Importujeme pomocné funkcie z utils
 from .utils import (
-    verify_clerk_bearer_and_get_sub,
+    verify_bearer_and_get_email,
     send_voip_push,
 )
 
@@ -119,13 +119,13 @@ def start():
     c2_id = data.get("advisorId")
 
     try:
-        auth_clerk_id, _ = verify_clerk_bearer_and_get_sub()
+        auth_email, _ = verify_bearer_and_get_email()
 
-        p1_klient = frappe.db.get_value("Klient", {"clerk_id": c1_id}, "name")
-        p1_poradca = frappe.db.get_value("Poradca", {"clerk_id": c1_id}, "name")
+        p1_klient = frappe.db.get_value("Klient", {"email": c1_id}, "name")
+        p1_poradca = frappe.db.get_value("Poradca", {"email": c1_id}, "name")
 
-        p2_klient = frappe.db.get_value("Klient", {"clerk_id": c2_id}, "name")
-        p2_poradca = frappe.db.get_value("Poradca", {"clerk_id": c2_id}, "name")
+        p2_klient = frappe.db.get_value("Klient", {"email": c2_id}, "name")
+        p2_poradca = frappe.db.get_value("Poradca", {"email": c2_id}, "name")
 
         real_klient = p1_klient or p2_klient
         real_poradca = p1_poradca or p2_poradca
@@ -148,7 +148,7 @@ def start():
 
         kto_volal = "Poradca" if p1_poradca else "Klient"
 
-        if auth_clerk_id == c1_id:
+        if auth_email == c1_id:
             target_doctype = "Poradca" if p2_poradca else "Klient"
             target_id = p2_poradca or p2_klient
             display_name = p1_poradca or p1_klient
@@ -198,7 +198,7 @@ def start():
             if token:
                 payload = {
                     "callId": call_doc.name,
-                    "callerId": auth_clerk_id,
+                    "callerId": auth_email,
                     "callerName": display_name,
                     "title": "Prichádzajúci hovor"
                 }
@@ -217,7 +217,7 @@ def start():
 @frappe.whitelist(methods=["POST"], allow_guest=True)
 def accept():
     try:
-        clerk_id, _ = verify_clerk_bearer_and_get_sub()
+        email, _ = verify_bearer_and_get_email()
         data = frappe.local.form_dict or {}
         call_id = data.get("callId")
 
@@ -228,8 +228,8 @@ def accept():
 
         # OVERENIE: Je ten, kto klikol "Prijať", jeden z účastníkov hovoru?
         is_valid = False
-        klient_name = frappe.db.get_value("Klient", {"clerk_id": clerk_id}, "name")
-        advisor_name = frappe.db.get_value("Poradca", {"clerk_id": clerk_id}, "name")
+        klient_name = frappe.db.get_value("Klient", {"email": email}, "name")
+        advisor_name = frappe.db.get_value("Poradca", {"email": email}, "name")
 
         # Oprava: Kontrolujeme polia 'klient' a 'poradca', nie 'volajuci'
         if (klient_name and doc.klient == klient_name) or (advisor_name and doc.poradca == advisor_name):
@@ -254,7 +254,7 @@ def accept():
 @frappe.whitelist(methods=["POST"], allow_guest=True)
 def end():
     try:
-        clerk_id, _ = verify_clerk_bearer_and_get_sub()
+        verify_bearer_and_get_email()
         data = frappe.local.form_dict or {}
         call_id = data.get("callId")
 

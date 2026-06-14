@@ -1,19 +1,18 @@
 import frappe
 from frappe.utils import now_datetime
-from .utils import verify_clerk_bearer_and_get_sub, clerk_api
-from bcservices.api.me import _require_authenticated_user_and_get_clerk_id
+from .utils import verify_bearer_and_get_email
+from bcservices.api.me import _require_authenticated_user_and_get_email
 
 
 # -----------------------------------------------------------------------------
-# INTERNAL – CHECK ADMIN ROLE
+# INTERNAL – CHECK ADMIN ROLE (admin = Poradca)
 # -----------------------------------------------------------------------------
 def _require_admin():
-    clerk_id, _ = verify_clerk_bearer_and_get_sub()
-    u = clerk_api(f"/v1/users/{clerk_id}")
-    role = (u.get("public_metadata") or {}).get("role")
-    if role != "admin":
+    email, _ = verify_bearer_and_get_email()
+    poradca = frappe.db.get_value("Poradca", {"email": email}, "name")
+    if not poradca:
         frappe.throw("Forbidden", frappe.PermissionError)
-    return clerk_id
+    return email
 
 
 # -----------------------------------------------------------------------------
@@ -21,12 +20,12 @@ def _require_admin():
 # -----------------------------------------------------------------------------
 @frappe.whitelist(methods=["GET"], allow_guest=True)
 def list_clients():
-    clerk_id = _require_authenticated_user_and_get_clerk_id()
-    
-    # Nájdi Poradca podľa clerk_id
+    email = _require_authenticated_user_and_get_email()
+
+    # Nájdi Poradca podľa emailu
     poradca = frappe.get_all(
         "Poradca",
-        filters={"clerk_id": clerk_id},
+        filters={"email": email},
         fields=["name"],
         limit_page_length=1
     )
@@ -49,7 +48,7 @@ def list_clients():
     users = frappe.get_all(
         "Klient",
         filters={"name": ["in", klient_names]},
-        fields=["name", "clerk_id", "email"]
+        fields=["name", "email"]
     )
     
     out = []

@@ -1,41 +1,40 @@
 # apps/bcservices/bcservices/api/user.py
 
 import frappe
-from .utils import (
-    verify_clerk_bearer_and_get_sub,
-    ensure_bc_user_by_clerk
-)
+from .utils import verify_bearer_and_get_email
 
 # 🔥 MUST HAVE → inak Frappe hlási "not whitelisted"
 @frappe.whitelist(methods=["GET"], allow_guest=True)
 def balance(userId: str = None):
     """
     Return total remaining minutes for a user.
-    iOS volá: /api/method/bcservices.api.user.balance?userId=<clerk_id>
+    iOS volá: /api/method/bcservices.api.user.balance?userId=<email>
 
     Overí:
-    - Clerk JWT (X-Clerk-Authorization: Bearer <jwt>)
+    - JWT (Authorization: Bearer <jwt>)
     - že user si pýta balans iba pre seba
     """
 
-    # 👇 Over Clerk JWT z headeru
-    clerk_id, payload = verify_clerk_bearer_and_get_sub()
+    # 👇 Over JWT z headeru
+    email, payload = verify_bearer_and_get_email()
 
     if not userId:
         frappe.throw("Missing userId", frappe.ValidationError)
 
     # 👇 user môže vidieť LEN svoj balans
-    if userId != clerk_id:
+    if userId != email:
         frappe.throw("Forbidden", frappe.PermissionError)
 
-    # 👇 nájdi / vytvor Klient
-    user_doc = ensure_bc_user_by_clerk(clerk_id)
+    # 👇 nájdi Klient podľa emailu
+    user_name = frappe.db.get_value("Klient", {"email": email}, "name")
+    if not user_name:
+        frappe.throw("User not found", frappe.DoesNotExistError)
 
     # 👇 nájdi minúty z tokenov
     tokens = frappe.get_all(
         "Token",
         filters={
-            "aktualny_drzitel": user_doc.name,
+            "aktualny_drzitel": user_name,
             "stav": "active"
         },
         fields=["name", "minuty_ostavajuce", "vydany_rok", "stav"]
@@ -46,7 +45,7 @@ def balance(userId: str = None):
 
     # 👇 iOS očakáva presné tvarovanie
     return {
-        "userId": clerk_id,
+        "userId": email,
         "totalMinutes": total,
         "tokens": [
             {

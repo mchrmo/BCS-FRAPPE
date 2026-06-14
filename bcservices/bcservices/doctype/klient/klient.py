@@ -32,51 +32,28 @@ class Klient(Document):
 
     @frappe.whitelist()
     def send_password_reset_email(self):
-        from bcservices.api.utils import clerk_api
+        import secrets
+        import string
 
         email = self.email
         if not email:
             frappe.msgprint("Klient nemá vyplnený email.")
             return
-        if not self.clerk_id:
-            frappe.msgprint("Klient nemá priradené Clerk ID.")
-            return
 
-        try:
-            res = clerk_api(
-                "/v1/sign_in_tokens",
-                method="POST",
-                json_body={
-                    "user_id": self.clerk_id,
-                    "expires_in_seconds": 86400
-                }
-            )
-            frappe.log_error(f"Clerk reset response: {res}", "BC Clerk Sync")
-            reset_link = res.get("url") or res.get("token")
-        except Exception as e:
-            frappe.log_error(f"Clerk reset password failed: {e}", "BC Clerk Sync")
-            frappe.msgprint(f"Nepodarilo sa vygenerovať reset link: {e}")
-            return
+        # Vygenerujeme nové náhodné heslo a uložíme ho
+        alphabet = string.ascii_letters + string.digits
+        new_password = "".join(secrets.choice(alphabet) for _ in range(16))
+        self.db_set("heslo", new_password)
 
-        if not reset_link:
-            frappe.msgprint("Clerk nevrátil reset link.")
-            return
-
+        password_safe = html.escape(new_password)
         subject = "Reset hesla"
         message = f"""
         Dobrý deň {self.username or 'používateľ'},<br><br>
         dostali sme žiadosť o reset vášho hesla.<br><br>
-        Kliknite na odkaz nižšie pre nastavenie nového hesla:<br><br>
-        <a href="{reset_link}" style="
-            background-color: #4CAF50;
-            color: white;
-            padding: 12px 24px;
-            text-decoration: none;
-            border-radius: 6px;
-            display: inline-block;
-        ">🔐 Nastaviť nové heslo</a><br><br>
-        Odkaz je platný 24 hodín.<br><br>
-        Ak ste o reset hesla nežiadali, ignorujte tento email.<br><br>
+        Vaše nové heslo je:<br><br>
+        🔐 <b>Heslo:</b> <code>{password_safe}</code><br><br>
+        Prosím, prihláste sa s týmto heslom. Po prihlásení si ho v prípade potreby zmeňte.<br><br>
+        Ak ste o reset hesla nežiadali, kontaktujte nás.<br><br>
         S pozdravom,<br>
         Váš tím
         """

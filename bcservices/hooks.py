@@ -14,14 +14,10 @@ app_license = "unlicense"
 
 doc_events = {
     "Klient": {
-        "after_insert": "bcservices.api.auth.after_insert_bc_pouzivatel",
         "on_update": "bcservices.api.auth.on_update_bc_pouzivatel",
-        "on_trash": "bcservices.api.auth.on_trash_bc_pouzivatel",   # ← ADD THIS
     },
     "Poradca": {
-        "after_insert": "bcservices.api.auth.after_insert_bc_poradca",
         "on_update": "bcservices.api.auth.on_update_bc_poradca",
-        "on_trash": "bcservices.api.auth.on_trash_bc_poradca",      # ← ADD THIS
     }
 }
 
