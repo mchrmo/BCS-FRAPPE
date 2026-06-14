@@ -9,7 +9,6 @@ from frappe import _
 from .utils import (
     verify_clerk_bearer_and_get_sub,
     send_voip_push,
-    get_klient_by_clerk_or_throw
 )
 
 # Importujeme Google Calendar logiku (z nového súboru google_calendar.py)
@@ -22,16 +21,7 @@ except ImportError:
     update_call_event_end = None
 
 # ----------------------------------------------------------------------
-# POMOCNÉ FUNKCIE
-# ----------------------------------------------------------------------
-
-@frappe.whitelist(methods=["GET"], allow_guest=True)
-def test_log():
-    frappe.log_error("TEST LOG FUNGUJE", "BC DEBUG - TEST")
-    return "OK, check error log"
-
-# ----------------------------------------------------------------------
-# ✅ NOVÁ FUNKCIA: Kontrola tokenov v piatok
+# Kontrola tokenov v piatok
 # ----------------------------------------------------------------------
 def check_friday_tokens(klient_name):
     """
@@ -261,9 +251,6 @@ def accept():
 # ----------------------------------------------------------------------
 # END CALL
 # ----------------------------------------------------------------------
-# ----------------------------------------------------------------------
-# END CALL
-# ----------------------------------------------------------------------
 @frappe.whitelist(methods=["POST"], allow_guest=True)
 def end():
     try:
@@ -318,24 +305,3 @@ def end():
     except Exception as e:
         frappe.log_error(traceback.format_exc(), "BC End Error")
         return {"success": False}
-
-# ----------------------------------------------------------------------
-# HISTORY
-# ----------------------------------------------------------------------
-@frappe.whitelist(methods=["GET"], allow_guest=True)
-def history(userId: str):
-    clerk_id, _ = verify_clerk_bearer_and_get_sub()
-    if clerk_id != userId:
-        frappe.throw(_("Forbidden"), frappe.PermissionError)
-
-    klient_name = get_klient_by_clerk_or_throw(userId)
-    
-    # Oprava filtra: Hľadáme podľa poľa 'klient', nie 'volajuci'
-    calls = frappe.get_all(
-        "Dennik hovorov",
-        filters={"klient": klient_name},
-        fields=["name", "poradca", "zaciatok_datum", "zaciatok_cas", "trvanie_s"],
-        order_by="zaciatok_datum desc, zaciatok_cas desc",
-        limit_page_length=20
-    )
-    return {"success": True, "calls": calls}
