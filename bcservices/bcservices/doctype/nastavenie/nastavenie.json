@@ -6,7 +6,6 @@
  "engine": "InnoDB",
  "field_order": [
   "jwt_secret",
-  "admin_email",
   "apn_team_id",
   "apn_key_id",
   "apn_bundle_id",
@@ -28,11 +27,6 @@
    "fieldtype": "Data",
    "label": "JWT Secret",
    "description": "Tajny kluc na podpisovanie prihlasovacich tokenov. Vygeneruje sa automaticky pri prvom prihlaseni."
-  },
-  {
-   "fieldname": "admin_email",
-   "fieldtype": "Data",
-   "label": "Admin Email"
   },
   {
    "fieldname": "apn_team_id",
