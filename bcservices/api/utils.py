@@ -1,6 +1,6 @@
 # apps/bcservices/bcservices/api/utils.py
 
-import json, time
+import time
 import frappe
 import jwt
 import requests
@@ -248,18 +248,8 @@ def send_voip_push(device_token: str, payload: dict):
         "content-type": "application/json",
     }
 
-    frappe.log_error(
-        title="APNS VOIP DEBUG – REQUEST",
-        message=f"HOST: {host}\nURL: {url}\nTOPIC: {headers['apns-topic']}\nTOKEN PREFIX: {device_token[:12]}\nPAYLOAD:\n{json.dumps(payload, indent=2)}"
-    )
-
     with httpx.Client(http2=True, timeout=10) as client:
         resp = client.post(url, headers=headers, json=payload)
-
-    frappe.log_error(
-        title="APNS VOIP DEBUG – RESPONSE",
-        message=f"STATUS: {resp.status_code}\nHEADERS: {dict(resp.headers)}\nBODY: {resp.text}"
-    )
 
     if resp.status_code != 200:
         # V prípade chyby nevyhadzujeme throw, aby nezlyhal celý proces start_call, len zalogujeme
@@ -282,19 +272,6 @@ def get_actor_by_clerk_id(clerk_id: str):
 
     return None, None
 
-
-def get_klient_by_clerk_or_throw(clerk_id: str):
-    """
-    Pomocná funkcia, ktorá vráti 'name' (ID) klienta podľa jeho Clerk ID.
-    Ak neexistuje, vyhodí chybu.
-    """
-    klient = frappe.db.get_value("Klient", {"clerk_id": clerk_id}, "name")
-    if not klient:
-        frappe.throw(frappe._("Klient s Clerk ID {0} nebol nájdený.").format(clerk_id), frappe.PermissionError)
-    return klient
-
-
-# --- Pridaj na koniec apps/bcservices/bcservices/api/utils.py ---
 
 def send_chat_push(device_token: str, title: str, body: str, custom_data: dict = None):
     """
@@ -338,11 +315,6 @@ def send_chat_push(device_token: str, title: str, body: str, custom_data: dict =
     # Pridáme vlastné dáta (napr. kto poslal správu, aby sa otvoril správny chat)
     if custom_data:
         payload.update(custom_data)
-
-    frappe.log_error(
-        title="APNS CHAT DEBUG", 
-        message=f"URL: {url}\nPayload: {json.dumps(payload)}"
-    )
 
     # Odoslanie requestu (rovnako ako pri VoIP)
     try:

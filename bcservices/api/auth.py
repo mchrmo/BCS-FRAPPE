@@ -27,20 +27,6 @@ def get_settings_public():
     return {
         "admin_clerk_id": settings.admin_clerk_id
     }
-# -----------------------------------------------------------------------------
-# PUBLIC API – iOS / CLIENTS
-# -----------------------------------------------------------------------------
-
-@frappe.whitelist(methods=["GET"], allow_guest=True)
-def get_settings_public():
-    """
-    iOS volá: /api/method/bcservices.api.auth.get_settings_public
-    Vráti Clerk ID administrátora, aby klient vedel komu písať čet.
-    """
-    settings = get_settings()
-    return {
-        "admin_clerk_id": settings.admin_clerk_id
-    }
 
 # -----------------------------------------------------------------------------
 # PUBLIC API – iOS / CLIENTS
@@ -534,40 +520,3 @@ def on_trash_bc_poradca(doc, method=None):
         frappe.log_error(f"✅ Poradca deleted from Clerk: {clerk_id}", "BC Clerk Sync")
     except Exception as e:
         frappe.log_error(f"Clerk delete poradca failed for {clerk_id}: {e}", "BC Clerk Sync")
-# ... (Imports a funkcie get_settings_public, sync_user, sso, utils... NECHAJ) ...
-# SKOPÍRUJ SI LEN FUNKCIE PRE PORADCU NIŽŠIE
-
-def after_insert_bc_poradca(doc, method=None):
-    if getattr(doc, "clerk_id", None):
-        return
-    if not doc.email or not doc.heslo:
-        return
-
-    try:
-        # 1. Pokus o vytvorenie
-        res = clerk_api(
-            "/v1/users",
-            method="POST",
-            json_body={
-                "email_address": [doc.email],
-                "password": doc.heslo,
-                "username": _normalize_username_base(doc.meno),
-                "public_metadata": { "role": "admin" }
-            }
-        )
-        clerk_id = res.get("id")
-        if clerk_id:
-            frappe.db.set_value("Poradca", doc.name, "clerk_id", clerk_id)
-
-    except Exception as e:
-        frappe.log_error(f"Clerk create poradca failed: {e}", "BC Clerk Sync")
-        
-        # 2. 🔥 FALLBACK: Ak user existuje, skúsime ho nájsť podľa emailu a priradiť ID
-        try:
-            # Clerk API na vyhľadanie usera nie je priamočiare cez filter, 
-            # ale môžeme skúsiť zoznam userov (toto je náročné na API, ale funkčné pre malé počty)
-            # Lepšie: Necháme to na manuálne nastavenie alebo logujeme chybu.
-            # Alebo: Predpokladáme, že chyba obsahuje ID? Nie.
-            pass 
-        except:
-            pass

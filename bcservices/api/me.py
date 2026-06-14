@@ -1,32 +1,12 @@
 # bcservices/api/me.py
 
 import frappe
-import json
-import base64
-
-def _extract_clerk_id_from_jwt(jwt_token: str) -> str | None:
-    try:
-        parts = jwt_token.split(".")
-        if len(parts) < 2:
-            return None
-        payload_b64 = parts[1]
-        padding = "=" * (-len(payload_b64) % 4)
-        payload_json = base64.urlsafe_b64decode(payload_b64 + padding).decode("utf-8")
-        payload = json.loads(payload_json)
-        return payload.get("sub")
-    except Exception:
-        return None
+from .utils import verify_clerk_bearer_and_get_sub
 
 def _require_authenticated_user_and_get_clerk_id() -> str:
-    auth_header = frappe.get_request_header("X-Clerk-Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        frappe.throw("Missing or invalid authorization header", frappe.PermissionError)
-
-    jwt = auth_header.replace("Bearer ", "").strip()
-    clerk_id = _extract_clerk_id_from_jwt(jwt)
+    clerk_id, _ = verify_clerk_bearer_and_get_sub()
     if not clerk_id:
         frappe.throw("Invalid token", frappe.PermissionError)
-
     return clerk_id
 
 @frappe.whitelist(allow_guest=True, methods=["GET"])
