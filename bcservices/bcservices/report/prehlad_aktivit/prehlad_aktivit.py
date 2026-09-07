@@ -7,11 +7,11 @@ Hovory sa čítajú z 'Dennik hovorov', správy z 'Aktivita sprav'. Report nič
 neukladá — pri každom otvorení sa dopočíta z aktuálnych dát.
 """
 
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 
 import frappe
 from frappe import _
-from frappe.utils import getdate
+from frappe.utils import get_time, getdate
 
 
 def execute(filters=None):
@@ -110,11 +110,18 @@ def _call_started_at(call):
 
 
 def _as_time(value):
+	"""Frappe vracia Time raz ako timedelta, inokedy ako text — zvládni oboje."""
 	if isinstance(value, time):
 		return value
-	# Frappe vracia Time ako timedelta
-	total = int(getattr(value, "total_seconds", lambda: 0)())
-	return time(total // 3600 % 24, total % 3600 // 60, total % 60)
+	if isinstance(value, timedelta):
+		total = int(value.total_seconds())
+		return time(total // 3600 % 24, total % 3600 // 60, total % 60)
+	if isinstance(value, str):
+		try:
+			return get_time(value)
+		except Exception:
+			return time.min
+	return time.min
 
 
 # ------------------------------------------------------------ po dvojiciach
