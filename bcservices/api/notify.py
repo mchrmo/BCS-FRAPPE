@@ -40,6 +40,11 @@ def send_notification():
 
     content = data.get("content", "Máte novú správu")
 
+    # Skupinová správa: v notifikácii je názov skupiny a v tele „Meno: text",
+    # aby bolo na prvý pohľad jasné, kam správa patrí.
+    group_id = data.get("group_id")
+    group_name = data.get("group_name")
+
     if not target_email:
         return {"success": False, "error": "Missing target_email"}
 
@@ -51,16 +56,16 @@ def send_notification():
     if sender_email:
         try:
             # Použijeme tú istú funkciu na hľadanie odosielateľa v DB
-            _, sender_doc = get_actor_by_email(sender_email)
+            sender_doctype, sender_doc = get_actor_by_email(sender_email)
 
             if sender_doc:
-                # Skúsime nájsť najlepšie dostupné meno v poradí: username -> full_name -> name
-                real_sender_name = (
-                    sender_doc.get("username") or
-                    sender_doc.get("full_name") or
-                    sender_doc.get("name") or
-                    raw_sender_name
-                )
+                # POZOR: Poradca ma meno v poli "meno", Klient v "username".
+                # Bez tohto rozlisenia padal fallback az na docname (napr. "s1r5svmgbk")
+                # a to sa zobrazovalo ako nadpis push notifikacie.
+                if sender_doctype == "Poradca":
+                    real_sender_name = sender_doc.get("meno") or raw_sender_name
+                else:
+                    real_sender_name = sender_doc.get("username") or raw_sender_name
         except Exception:
             # Ak nastane chyba pri hľadaní, nevadí, použijeme pôvodné raw meno
             pass
@@ -76,8 +81,11 @@ def send_notification():
     # 3. Zvýšime počítadlo neprečítaných PER ODOSIELATEĽ. Badge = súčet všetkých.
     #    Appka pri otvorení konkrétneho chatu zavolá mark_chat_read(from_user),
     #    čím sa odpočíta len tá jedna konverzácia (badge klesne presne o toľko).
+    # Neprečítané sa počítajú podľa odosielateľa; pri skupine podľa skupiny,
+    # aby sa dali vynulovať otvorením skupinového chatu (a nie súkromného).
+    unread_key = f"group:{group_id}" if group_id else sender_email
     unread_map = _load_unread_map(user_doc)
-    key = sender_email or "unknown"
+    key = unread_key or sender_email or "unknown"
     unread_map[key] = int(unread_map.get(key, 0)) + 1
     new_badge = _store_unread_map(doctype, user_doc.name, unread_map)
 
@@ -85,17 +93,24 @@ def send_notification():
     devices = user_doc.get("zariadenie") or []
     sent_count = 0
 
+    push_title = group_name or real_sender_name
+    push_body = f"{real_sender_name}: {content}" if group_id else content
+    custom_data = {
+        "email_from": sender_email,  # Aby iOS vedel otvoriť chat (používame email)
+        "type": "chat",
+    }
+    if group_id:
+        custom_data["group_id"] = group_id
+        custom_data["type"] = "group_chat"
+
     for d in devices:
         # Hľadáme 'apns_token' (nie voip_token!)
         if d.apns_token:
             success = send_chat_push(
                 device_token=d.apns_token,
-                title=real_sender_name,  # 🔥 TU použijeme pekné meno z databázy
-                body=content,            # Text správy
-                custom_data={
-                    "email_from": sender_email, # Aby iOS vedel otvoriť chat (používame email)
-                    "type": "chat"
-                },
+                title=push_title,
+                body=push_body,
+                custom_data=custom_data,
                 badge=new_badge          # Počet neprečítaných → ikona appky
             )
             if success:
