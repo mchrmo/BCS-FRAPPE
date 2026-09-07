@@ -1,5 +1,9 @@
 import json
+import traceback
+
 import frappe
+from frappe.utils import now_datetime
+
 from .utils import get_actor_by_email, send_chat_push
 
 
@@ -24,6 +28,55 @@ def _store_unread_map(doctype, name, unread_map: dict) -> int:
     })
     frappe.db.commit()
     return total
+
+def _log_message_activity(data, sender_email, sender_doctype, sender_doc,
+                          target_email, target_doctype, target_doc):
+    """Zapíše jeden riadok o odoslanej správe do 'Aktivita sprav' (bez obsahu).
+
+    Skupinová správa vyvolá notifikáciu pre každého člena zvlášť a všetky prídu
+    s rovnakým ID správy — druhý a ďalší zápis Frappe odmietne ako duplicitu.
+    Vznikne tak presne jeden riadok na jednu odoslanú správu, nech išla komukoľvek.
+    """
+    message_id = data.get("message_id")
+    if not message_id:
+        # Staršia verzia signalizačného servera ID neposiela. Bez neho by sa
+        # skupinová správa zapísala toľkokrát, koľko má skupina členov.
+        return
+
+    group_id = data.get("group_id")
+    kind = data.get("kind") or "text"
+
+    row = {
+        "doctype": "Aktivita sprav",
+        "sprava_id": message_id,
+        "datum_cas": now_datetime(),
+        "odosielatel": sender_email,
+        "prijemca": None if group_id else target_email,
+        "typ": "subor" if kind == "file" else "text",
+    }
+
+    # Klient/poradca dopĺňame podľa rolí oboch strán — rovnaký tvar ako
+    # Dennik hovorov, aby sa dali v reporte spájať a filtrovať jednotne.
+    if group_id:
+        row["skupina"] = group_id
+        if sender_doc and sender_doctype == "Klient":
+            row["klient"] = sender_doc.name
+        elif sender_doc and sender_doctype == "Poradca":
+            row["poradca"] = sender_doc.name
+    elif sender_doc and sender_doctype == "Klient":
+        row["klient"] = sender_doc.name
+        if target_doctype == "Poradca":
+            row["poradca"] = target_doc.name
+    elif sender_doc and sender_doctype == "Poradca":
+        row["poradca"] = sender_doc.name
+        if target_doctype == "Klient":
+            row["klient"] = target_doc.name
+        elif target_doctype == "Poradca":
+            row["poradca2"] = target_doc.name
+
+    frappe.get_doc(row).insert(ignore_permissions=True)
+    frappe.db.commit()
+
 
 @frappe.whitelist(methods=["POST"], allow_guest=True)
 def send_notification():
@@ -52,6 +105,7 @@ def send_notification():
     # 🔥 OPRAVA: Zistíme reálne meno odosielateľa z databázy
     # -------------------------------------------------------------------------
     real_sender_name = raw_sender_name # Default hodnota
+    sender_doctype, sender_doc = None, None
 
     if sender_email:
         try:
@@ -77,6 +131,18 @@ def send_notification():
 
     if not user_doc:
         return {"success": False, "error": "User not found"}
+
+    # Evidencia odoslaných správ pre týždenné prehľady. Nesmie zhodiť
+    # notifikáciu, preto je celá v try/except.
+    try:
+        _log_message_activity(data, sender_email, sender_doctype, sender_doc,
+                              target_email, doctype, user_doc)
+    except frappe.DuplicateEntryError:
+        # Skupinová správa — rovnaké ID už zapísal predchádzajúci príjemca.
+        frappe.db.rollback()
+    except Exception:
+        frappe.db.rollback()
+        frappe.log_error(traceback.format_exc(), "BC Message Activity Log")
 
     # 3. Zvýšime počítadlo neprečítaných PER ODOSIELATEĽ. Badge = súčet všetkých.
     #    Appka pri otvorení konkrétneho chatu zavolá mark_chat_read(from_user),
