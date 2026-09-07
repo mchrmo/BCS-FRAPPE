@@ -139,7 +139,10 @@ def send_notification():
                               target_email, doctype, user_doc)
     except frappe.DuplicateEntryError:
         # Skupinová správa — rovnaké ID už zapísal predchádzajúci príjemca.
+        # Frappe si k výnimke pripája hlášku do odpovede; zahodíme ju, nech
+        # signalizačný server nedostáva „already exists" pri každom členovi.
         frappe.db.rollback()
+        frappe.clear_messages()
     except Exception:
         frappe.db.rollback()
         frappe.log_error(traceback.format_exc(), "BC Message Activity Log")
