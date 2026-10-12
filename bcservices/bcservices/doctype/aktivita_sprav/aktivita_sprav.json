@@ -1,0 +1,118 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "field:sprava_id",
+ "creation": "2026-09-07 18:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "sprava_id",
+  "datum_cas",
+  "odosielatel",
+  "prijemca",
+  "typ",
+  "klient",
+  "poradca",
+  "poradca2",
+  "skupina"
+ ],
+ "fields": [
+  {
+   "fieldname": "sprava_id",
+   "fieldtype": "Data",
+   "label": "ID správy",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "datum_cas",
+   "fieldtype": "Datetime",
+   "label": "Dátum a čas",
+   "in_list_view": 1,
+   "search_index": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "odosielatel",
+   "fieldtype": "Data",
+   "label": "Odosielateľ",
+   "in_list_view": 1,
+   "search_index": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "prijemca",
+   "fieldtype": "Data",
+   "label": "Príjemca",
+   "description": "Pri skupinovej správe prázdne — príjemcov je viac.",
+   "in_list_view": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "typ",
+   "fieldtype": "Select",
+   "label": "Typ",
+   "options": "text\nsubor",
+   "default": "text",
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "klient",
+   "fieldtype": "Link",
+   "label": "Klient",
+   "options": "Klient",
+   "search_index": 1,
+   "in_list_view": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "poradca",
+   "fieldtype": "Link",
+   "label": "Poradca",
+   "options": "Poradca",
+   "search_index": 1,
+   "in_list_view": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "poradca2",
+   "fieldtype": "Link",
+   "label": "Poradca 2",
+   "options": "Poradca",
+   "description": "Druhý poradca pri komunikácii poradca – poradca."
+  },
+  {
+   "fieldname": "skupina",
+   "fieldtype": "Link",
+   "label": "Skupina",
+   "options": "Skupina"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-09-07 18:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "BCServices",
+ "name": "Aktivita sprav",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "datum_cas",
+ "sort_order": "DESC",
+ "states": []
+}
