@@ -143,6 +143,13 @@ def _by_pair(calls, messages):
 	rows = {}
 
 	def bucket(klient, poradca, poradca2, skupina):
+		# Dvojica dvoch poradcov je tá istá bez ohľadu na to, kto volal alebo
+		# písal. V Denníku hovorov je 'poradca' volajúci a 'poradca2' volaný,
+		# takže bez zoradenia by Boris→Michal a Michal→Boris vyšli ako dva
+		# samostatné riadky. Pri klientovi tento problém nie je, ten je vždy
+		# v poli 'klient'.
+		if not klient and poradca and poradca2 and poradca2 < poradca:
+			poradca, poradca2 = poradca2, poradca
 		key = (klient, poradca, poradca2, skupina)
 		if key not in rows:
 			rows[key] = {
