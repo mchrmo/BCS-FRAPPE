@@ -17,7 +17,10 @@
   "trvanie_s",
   "pouzity_token",
   "je_konferencia",
-  "ucastnici"
+  "ucastnici",
+  "ai_sekcia",
+  "ai_stav",
+  "ai_zhrnutie"
  ],
  "fields": [
   {
@@ -90,12 +93,30 @@
    "fieldtype": "Table",
    "label": "Účastníci",
    "options": "Ucastnik hovoru"
+  },
+  {
+   "fieldname": "ai_sekcia",
+   "fieldtype": "Section Break",
+   "label": "AI zhrnutie"
+  },
+  {
+   "fieldname": "ai_stav",
+   "fieldtype": "Select",
+   "label": "Stav AI zhrnutia",
+   "options": "\nČaká\nHotové\nBez záznamu\nChyba",
+   "read_only": 1
+  },
+  {
+   "fieldname": "ai_zhrnutie",
+   "fieldtype": "Long Text",
+   "label": "AI zhrnutie",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-04-02 23:00:00.000000",
+ "modified": "2026-10-19 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "BCServices",
  "name": "Dennik hovorov",

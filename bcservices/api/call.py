@@ -1,3 +1,4 @@
+import hmac
 import json
 import math
 import traceback
@@ -11,6 +12,7 @@ from .utils import (
     verify_bearer_and_get_email,
     send_voip_push,
     get_actor_by_email,
+    get_settings,
 )
 
 # Importujeme Google Calendar logiku (z nového súboru google_calendar.py)
@@ -484,3 +486,37 @@ def invite():
     except Exception:
         frappe.log_error(traceback.format_exc(), "BC Invite Error")
         return {"success": False, "error": "Internal server error"}
+
+# ----------------------------------------------------------------------
+# AI ZHRNUTIE — zapisovatel zo signaling servera ulozi zhrnutie hovoru
+# ----------------------------------------------------------------------
+AI_STAVY = ("Čaká", "Hotové", "Bez záznamu", "Chyba")
+
+
+@frappe.whitelist(methods=["POST"], allow_guest=True)
+def save_ai_summary():
+    """
+    Vola AI zapisovatel (signaling server), nie appka. Neoveruje sa JWT
+    pouzivatela, ale spolocny tajny kluc v hlavicke X-AI-Secret
+    (Nastavenie -> AI Secret == AI_SECRET na Render).
+    Telo: { "callId": "CALL-00123", "stav": "Hotové", "zhrnutie": "..." }
+    """
+    expected = get_settings().get_password("ai_secret", raise_exception=False) or ""
+    provided = frappe.get_request_header("X-AI-Secret") or ""
+    if not expected or not hmac.compare_digest(provided.encode(), expected.encode()):
+        frappe.throw("Unauthorized", frappe.PermissionError)
+
+    data = frappe.local.form_dict or {}
+    call_id = data.get("callId")
+    stav = data.get("stav")
+    if not call_id or stav not in AI_STAVY:
+        return {"success": False, "error": "Chýba callId alebo neplatný stav"}
+    if not frappe.db.exists("Dennik hovorov", call_id):
+        return {"success": False, "error": "Hovor neexistuje"}
+
+    frappe.db.set_value("Dennik hovorov", call_id, {
+        "ai_stav": stav,
+        "ai_zhrnutie": (data.get("zhrnutie") or "").strip(),
+    })
+    frappe.db.commit()
+    return {"success": True}

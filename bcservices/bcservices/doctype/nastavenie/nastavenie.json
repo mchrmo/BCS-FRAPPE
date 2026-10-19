@@ -19,7 +19,9 @@
   "friday_base_year",
   "max_primary_tokens_per_user",
   "app_url",
-  "min_ios_version"
+  "min_ios_version",
+  "ai_sekcia",
+  "ai_secret"
  ],
  "fields": [
   {
@@ -99,13 +101,24 @@
    "fieldtype": "Data",
    "label": "Min iOS Version",
    "description": "Minimalna verzia iOS appky (napr. 1.2.0). Starsi pouzivatelom sa zobrazi force update alert."
+  },
+  {
+   "fieldname": "ai_sekcia",
+   "fieldtype": "Section Break",
+   "label": "AI zapisovateľ"
+  },
+  {
+   "fieldname": "ai_secret",
+   "fieldtype": "Password",
+   "label": "AI Secret",
+   "description": "Spoločný tajný kľúč so signaling serverom (AI_SECRET). Bez neho zapisovateľ nemôže ukladať zhrnutia."
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-05-22 00:00:00.000000",
+ "modified": "2026-10-19 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "BCServices",
  "name": "Nastavenie",
